@@ -27,14 +27,25 @@ Danach: `/backlog`, `/handoff`, `/land` — wie gewohnt, kein Präfix.
 
 - **`backlog`** — listet offene Handoffs aus `~/Documents/Coding/_handoffs/` repo-übergreifend und kann daraus Chip-Sessions spawnen.
 - **`handoff`** — schreibt eine Handoff-Datei nach derselben Konvention, mit der die nächste Session schlank weiterarbeiten kann.
-- **`land`** — Commit → PR → Merge in einem Zug. Anders als die beiden anderen ist diese Version **repo-agnostisch**: sie erkennt Repo-Name, Default-Branch und Merge-Methode selbst über `gh repo view`, statt sie hart zu verdrahten. (Die Ursprungsversion lebt projekt-lokal in `Hezo-OPS/.claude/commands/land.md` und ist auf dieses eine Repo zugeschnitten.)
+- **`land`** — Commit → PR → Merge in einem Zug. Diese Version ist **repo-agnostisch**: sie erkennt Repo-Name, Default-Branch und Merge-Methode selbst über `gh repo view`, statt sie hart zu verdrahten.
 
-## Bekannte Einschränkungen
+## Handoff-Verzeichnis
 
-`backlog` und `handoff` setzen zwei Dinge voraus, die nicht überall gegeben sind:
+`backlog` und `handoff` teilen sich ein zentrales, repo-übergreifendes Verzeichnis für
+Übergabedateien. Der Pfad ist **nicht hartkodiert** — beide Commands ermitteln ihn beim
+ersten Aufruf in dieser Reihenfolge:
 
-1. **Den Pfad `~/Documents/Coding/_handoffs/`** als zentrales Handoff-Verzeichnis — eine persönliche Konvention, kein Standard. Wer einen anderen Workspace-Root nutzt, muss die Commands entsprechend anpassen.
-2. **Das `spawn_task`-Tool** (Chip-Sessions) — nur verfügbar in Claude-Clients, die diese MCP-Fähigkeit mitbringen. Ohne sie funktioniert der `spawn`-Unterbefehl von `/backlog` nicht, der Rest (Auflisten, `done`, `show`) schon.
+1. Env-Var `CLAUDE_HANDOFFS_DIR`, falls gesetzt.
+2. Sonst `~/.claude/handoffs-dir` (eine Zeile, der Pfad), falls vorhanden.
+3. Sonst wird einmalig gefragt und die Antwort in `~/.claude/handoffs-dir` gemerkt —
+   jeder weitere Aufruf, auch auf einem anderen Rechner, fragt nicht erneut, solange
+   diese Datei existiert.
+
+## Bekannte Einschränkung
+
+`backlog` setzt das **`spawn_task`-Tool** (Chip-Sessions) für seinen `spawn`-Unterbefehl
+voraus — nur verfügbar in Claude-Clients, die diese MCP-Fähigkeit mitbringen. Ohne sie
+funktioniert `spawn` nicht, der Rest (Auflisten, `done`, `show`) schon.
 
 `land` hat keine dieser Abhängigkeiten und sollte in jedem Git-Repo mit `gh`-CLI-Zugriff laufen.
 

@@ -5,15 +5,28 @@ description: Schreibt eine eindeutige Handoff-Datei, mit der die nächste Sessio
 Erstelle eine Übergabedatei, mit der eine **frische** Session diese Arbeit fortsetzen
 kann, ohne den jetzigen Kontext mitschleppen zu müssen.
 
+## Handoff-Verzeichnis ermitteln (einmalig, dann gemerkt)
+
+Vor allem anderen: **`$HANDOFF_DIR`** bestimmen, in dieser Reihenfolge —
+
+1. Env-Var `CLAUDE_HANDOFFS_DIR`, falls gesetzt.
+2. Sonst die erste nicht-leere Zeile aus `~/.claude/handoffs-dir`, falls die Datei
+   existiert.
+3. Sonst: einmalig nachfragen, wo das zentrale, repo-übergreifende Handoff-Verzeichnis
+   liegen soll (sinnvoller Vorschlag: ein `_handoffs`-Ordner neben dem Wurzelverzeichnis,
+   unter dem die Repos liegen). Nach der Antwort das Verzeichnis anlegen
+   (`mkdir -p "$HANDOFF_DIR/done"`) und den Pfad nach `~/.claude/handoffs-dir` schreiben
+   (eine Zeile, der reine Pfad), damit künftige Aufrufe — auch von `/backlog` — nicht
+   erneut fragen.
+
 ## Ort: zentral, repo-übergreifend
 
-**Immer nach `~/Documents/Coding/_handoffs/` schreiben** — nicht ins Repo.
+**Immer nach `$HANDOFF_DIR` schreiben** — nicht ins Repo.
 
-Grund: der Rückstand verteilt sich über viele Repos (Hezo-OPS, footscan-server,
-printfile-generator, infrastructure-aws, …), und `/backlog` muss ihn an *einem* Ort
-sehen. Ein zentraler Ort erledigt nebenbei zwei alte Probleme: er überlebt das Aufräumen
-von git-Worktrees, und cross-repo-Aufgaben („Infra-PR zuerst, App-PR danach") haben
-endlich ein Zuhause, statt willkürlich in einem der beiden Repos zu landen.
+Grund: der Rückstand verteilt sich über viele Repos, und `/backlog` muss ihn an *einem*
+Ort sehen. Ein zentraler Ort erledigt nebenbei zwei alte Probleme: er überlebt das
+Aufräumen von git-Worktrees, und cross-repo-Aufgaben („Infra-PR zuerst, App-PR danach")
+haben endlich ein Zuhause, statt willkürlich in einem der beiden Repos zu landen.
 
 - Dateiname: `<repo>__handoff-<slug>.md`.
   - `<repo>` ist der **Verzeichnisname unter `~/Documents/Coding`**, klein — nicht der
@@ -27,7 +40,7 @@ endlich ein Zuhause, statt willkürlich in einem der beiden Repos zu landen.
   veralteter Rest oder ein fremder paralleler Handoff ist, und hänge dann `-2` an. Im
   Zweifel nachfragen.
 - Umfangreiches Begleitmaterial (JSON-Dumps, CSVs) nach
-  `_handoffs/assets/<repo>__<slug>/` und in der Datei darauf verweisen.
+  `$HANDOFF_DIR/assets/<repo>__<slug>/` und in der Datei darauf verweisen.
 
 ## Frontmatter (Pflicht)
 

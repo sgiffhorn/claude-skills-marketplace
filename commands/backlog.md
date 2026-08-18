@@ -2,12 +2,29 @@
 description: Zeigt alle offenen Handoffs repo-übergreifend und spawnt daraus Chip-Sessions
 ---
 
-Zentraler Rückstand über **alle** Repos. Quelle ist ausschließlich
-`~/Documents/Coding/_handoffs/` — eine Datei pro offener Aufgabe, `<repo>__<slug>.md`.
+Zentraler Rückstand über **alle** Repos. Quelle ist ausschließlich das
+Handoff-Verzeichnis (`$HANDOFF_DIR`, siehe unten) — eine Datei pro offener Aufgabe,
+`<repo>__<slug>.md`.
 
 **Der Index wird immer frisch aus dem Verzeichnis gelesen, nie gespeichert.** Eine
 gepflegte Indexdatei driftet garantiert von den Handoffs weg; das Verzeichnis ist die
 einzige Wahrheit.
+
+## Handoff-Verzeichnis ermitteln (einmalig, dann gemerkt)
+
+Vor allem anderen: **`$HANDOFF_DIR`** bestimmen, in dieser Reihenfolge —
+
+1. Env-Var `CLAUDE_HANDOFFS_DIR`, falls gesetzt.
+2. Sonst die erste nicht-leere Zeile aus `~/.claude/handoffs-dir`, falls die Datei
+   existiert.
+3. Sonst: einmalig nachfragen, wo das zentrale, repo-übergreifende Handoff-Verzeichnis
+   liegen soll (sinnvoller Vorschlag: ein `_handoffs`-Ordner neben dem Wurzelverzeichnis,
+   unter dem die Repos liegen). Nach der Antwort das Verzeichnis anlegen
+   (`mkdir -p "$HANDOFF_DIR/done"`) und den Pfad nach `~/.claude/handoffs-dir` schreiben
+   (eine Zeile, der reine Pfad), damit künftige Aufrufe — auch von `/handoff` — nicht
+   erneut fragen.
+
+Jede weitere Erwähnung von `_handoffs/…` in diesem Dokument meint `$HANDOFF_DIR/…`.
 
 ## Frontmatter-Vertrag
 
@@ -55,14 +72,14 @@ Für jede gewählte Zeile **einen** Chip via `spawn_task` anlegen:
   vollständigen Pfad der Handoff-Datei, den ersten Schritt aus `next`, und die Anweisung,
   die Datei zuerst zu lesen. Etwa:
 
-  > Lies zuerst `~/Documents/Coding/_handoffs/<datei>` — sie enthält Stand, getroffene
+  > Lies zuerst `$HANDOFF_DIR/<datei>` — sie enthält Stand, getroffene
   > Entscheidungen, offene Subtasks und relevante Pfade. Erster Schritt: <next>.
   > Wenn die Arbeit abgeschlossen ist, setze in der Datei `status: done`.
 
 Danach die angelegten Chips auflisten.
 
 ### `done <slug>`
-`status: done` in die Datei schreiben **und** sie nach `_handoffs/done/` verschieben.
+`status: done` in die Datei schreiben **und** sie nach `$HANDOFF_DIR/done/` verschieben.
 Beides, damit weder `ls` noch ein Grep über `status:` allein täuscht.
 
 ### `show <slug>`
