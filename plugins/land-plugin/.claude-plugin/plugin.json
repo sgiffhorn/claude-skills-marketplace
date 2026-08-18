@@ -1,0 +1,8 @@
+{
+  "name": "land-plugin",
+  "description": "Commit, PR und Merge in einem Zug — repo-agnostisch, mit hartem Stop vor Squash-Merge in gestapelten PRs",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sebastian Giffhorn"
+  }
+}

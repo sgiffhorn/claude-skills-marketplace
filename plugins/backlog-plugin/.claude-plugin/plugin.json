@@ -1,0 +1,8 @@
+{
+  "name": "backlog-plugin",
+  "description": "Zeigt alle offenen Handoffs repo-übergreifend und spawnt daraus Chip-Sessions",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sebastian Giffhorn"
+  }
+}

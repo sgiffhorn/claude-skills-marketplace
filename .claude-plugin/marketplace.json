@@ -1,0 +1,23 @@
+{
+  "name": "sebastian-claude-tools",
+  "owner": {
+    "name": "Sebastian Giffhorn"
+  },
+  "plugins": [
+    {
+      "name": "backlog-plugin",
+      "source": "./plugins/backlog-plugin",
+      "description": "Zeigt alle offenen Handoffs repo-übergreifend und spawnt daraus Chip-Sessions"
+    },
+    {
+      "name": "handoff-plugin",
+      "source": "./plugins/handoff-plugin",
+      "description": "Schreibt eine eindeutige Handoff-Datei, mit der die nächste Session schlank weiterarbeiten kann"
+    },
+    {
+      "name": "land-plugin",
+      "source": "./plugins/land-plugin",
+      "description": "Commit, PR und Merge in einem Zug — repo-agnostisch, mit hartem Stop vor Squash-Merge in gestapelten PRs"
+    }
+  ]
+}

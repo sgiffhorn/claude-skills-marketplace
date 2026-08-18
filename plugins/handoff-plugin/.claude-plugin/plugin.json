@@ -1,0 +1,8 @@
+{
+  "name": "handoff-plugin",
+  "description": "Schreibt eine eindeutige Handoff-Datei, mit der die nächste Session schlank weiterarbeiten kann",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sebastian Giffhorn"
+  }
+}
