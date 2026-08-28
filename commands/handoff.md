@@ -68,6 +68,17 @@ mit einer echten 21-MB-Platte fahren", nicht „Testing".
 - **Relevante Dateien/Pfade:** Konkret, damit die neue Session nicht erneut explorieren
   muss.
 - **Einstieg:** Der erste Schritt, ausführlicher als `next`.
+- **Anschlussprompt:** Pflicht, und immer der **letzte** Abschnitt. Die Überschrift
+  heißt exakt `## Anschlussprompt`, ohne Zusatz wie „(paste-ready)" oder „für die
+  frische Session": sie ist der Anker, an dem sich der Abschnitt über alle Repos hinweg
+  finden lässt. Inhalt ist ein fenced Code-Block, den man ohne Nacharbeit einfügen kann,
+  und er beginnt mit Lesen, Statusprüfung und Statuszeile (Wortlaut unter „Zum
+  Schluss").
+
+Ohne diesen Abschnitt lässt sich die Aufgabe nur über `/backlog` starten. Das
+funktioniert, ist aber der schmalere Weg: `/backlog` baut den Prompt aus `next`, also
+aus einem Satz, während der Anschlussprompt die Entscheidungen mitgibt, die sonst erneut
+hergeleitet werden.
 
 ## Alles ausschreiben, nichts verlinken
 
@@ -88,3 +99,18 @@ Präzise und vollständig, aber ohne Geschwätz.
 Gib den **genauen Pfad** aus und einen **paste-ready Anschlussprompt** als eigenen
 fenced Code-Block im Chat (nicht nur in der Datei), mit dem sich die nächste Session
 starten lässt. Weise darauf hin, dass die Aufgabe ab jetzt in `/backlog` auftaucht.
+
+**Der Anschlussprompt beginnt mit Lesen, Statusprüfung und Statuszeile**, in dieser
+Reihenfolge, und im Chat-Block wortgleich wie im `## Anschlussprompt`-Abschnitt der
+Datei. Fehlt das, startet eine Session über den Anschlussprompt, ohne sich als laufend
+zu markieren, die Datei bleibt auf `status: open`, und `/backlog` spawnt ahnungslos
+einen zweiten Chip auf dieselbe Aufgabe. Das ist kein theoretischer Fall: der zweite
+Chip findet die Arbeit dann halb fertig vor, und wo sich beide Läufe eine Ressource
+teilen (eine gemeinsame Entwicklungsdatenbank etwa), blockieren sie sich gegenseitig.
+`/backlog` gibt seinen Chips diese Zeile längst mit, der handkopierte Anschlussprompt
+war der ungeschützte Weg. Wortlaut:
+
+  > Lies zuerst `$HANDOFF_DIR/<datei>`, sie enthält Stand, getroffene Entscheidungen,
+  > offene Subtasks und relevante Pfade. Steht dort schon `status: running`, arbeitet
+  > jemand daran: nicht anfangen, sondern melden. Sonst setze vor dem ersten
+  > Arbeitsschritt `status: running` und `running-since: <jetzt, YYYY-MM-DD HH:MM>`.
