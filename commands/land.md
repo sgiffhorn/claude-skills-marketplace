@@ -43,6 +43,8 @@ Nutzer-Argumente: `$ARGUMENTS`
 
    Ermittle die Test-/Lint-/Typecheck-Kommandos aus `package.json`'s `scripts` (oder dem Äquivalent der Sprache — `Makefile`, `pyproject.toml`, `Cargo.toml`) bzw. aus dem, was `CLAUDE.md`/`README` als Standardkommandos nennt. Häufig `npm run lint && npm run typecheck && npm test` oder eine schnellere Variante, falls das Repo eine dokumentiert (z. B. ein datei-paralleler `test:unit`).
 
+   **Bietet das Repo ein schmales Gate an** (ein Script wie `gate:affected`, das nur die geänderten Dateien lintet und nur die betroffenen Tests fährt, oder was `CLAUDE.md` als Gate vor dem Merge nennt), **nimm das** statt der vollen Suite: die volle läuft dann in der CI nach dem Merge. Teile der Suite, die eine Datenbank oder einen anderen Dienst brauchen (Integrationstests), nicht lokal ohne diesen Dienst starten. Sie laufen dort in Timeouts statt in Fehler und kosten Minuten ohne Aussage; die CI fährt sie ohnehin.
+
    Fehler → **stopp**, exakte Datei + Zeile melden, nicht mergen.
 
    Wenn das Repo einen echten Produktions-Build kennt (Next.js `next build`, `tsc --build`, o. ä.) und der Diff etwas anfasst, das Lint/Typecheck/Unit-Tests nicht abdecken (Server-Runtime-Grenzen, neue Route-Handler, Build-Konfiguration) — den Build zusätzlich fahren, wenn das Repo dafür bereits ein bekanntes Muster hat.
@@ -159,6 +161,14 @@ Nutzer-Argumente: `$ARGUMENTS`
 
    Nur die **Remote**-Referenz nachziehen, nie lokal löschen (`git branch -D` unter einem laufenden Worktree ist der Fehler, den Schritt „Nicht" unten verbietet). Den Worktree selbst nicht anfassen — Aufräumen ist eine bewusste Handlung des Operators.
 
+9b. **Den CI-Lauf der PR abbrechen.** Nach dem Merge prüft ein noch laufender oder wartender PR-Lauf einen Stand, den der Lauf auf dem Default-Branch gleich noch einmal prüft. Teilen sich die Läufe Runner oder eine Concurrency-Gruppe, hält er den Lauf auf dem Default-Branch auf.
+
+    ```bash
+    gh run list --branch <head-branch> --json databaseId,status,event \
+      -q '.[] | select(.status != "completed" and .event == "pull_request") | .databaseId' \
+      | xargs -r -n1 gh run cancel
+    ```
+
 10. **Nachprüfen und melden.**
 
     ```bash
@@ -180,3 +190,4 @@ Nutzer-Argumente: `$ARGUMENTS`
 - **Kein Force-Push auf den Default-Branch**, nie.
 - **Kein stilles Mitnehmen** von Debug-Artefakten — Schritt 1 nennt sie, der Operator entscheidet.
 - **Keine Datenbank-Migration o. ä. Deploy-Schritte fahren** — das ist Sache der Deploy-Pipeline, nicht dieses Skills.
+- **Kein Warten im Vordergrund.** Jedes Beobachten (`gh run watch`, Poll-Schleifen) läuft mit `run_in_background`. Ein Vordergrund-`sleep` wird geblockt und erscheint dann als Ablehnung durch den Nutzer, obwohl niemand abgelehnt hat.

@@ -1,6 +1,6 @@
 # claude-skills-marketplace
 
-Vier Custom Slash-Commands für Claude Code plus ein Hilfsskript, zum Kopieren, nicht als Plugin.
+Fünf Custom Slash-Commands für Claude Code plus ein Hilfsskript, zum Kopieren, nicht als Plugin.
 
 **Warum kein Plugin:** Claude-Code-Plugin-Commands sind immer namespaced (`/plugin-name:command-name`), es gibt keinen Weg zu einem bare `/backlog`. Wer den kurzen Befehl will, muss die Datei stattdessen in sein eigenes `.claude/commands/` legen — dann lädt Claude Code sie unter ihrem Dateinamen, ohne Präfix.
 
@@ -30,7 +30,7 @@ Das Skript gehört auch beim projektweiten Weg nach `~/.claude/bin/`, weil `back
 unter diesem Pfad aufruft. Es wird nur für `/backlog worktrees` gebraucht, die übrigen
 Unterbefehle laufen ohne.
 
-Danach: `/backlog`, `/handoff`, `/finish`, `/land`, wie gewohnt, kein Präfix.
+Danach: `/backlog`, `/handoff`, `/finish`, `/land`, `/ship`, wie gewohnt, kein Präfix.
 
 ## Commands
 
@@ -38,6 +38,7 @@ Danach: `/backlog`, `/handoff`, `/finish`, `/land`, wie gewohnt, kein Präfix.
 - **`handoff`**: schreibt eine Handoff-Datei nach derselben Konvention, mit der die nächste Session schlank weiterarbeiten kann.
 - **`finish`**: schließt eine Session ab: prüft ehrlich gegen die Subtasks und DoD der Handoff-Datei, ob die Arbeit wirklich fertig ist, räumt die eigene Kladde auf und verschiebt die Datei erst dann nach `done/`. `backlog` schickt seine Chips am Ende hierher.
 - **`land`**: Commit, PR und Merge in einem Zug. Diese Version ist **repo-agnostisch**: sie erkennt Repo-Name, Default-Branch und Merge-Methode selbst über `gh repo view`, statt sie hart zu verdrahten.
+- **`ship`**: `land` und danach das Release in einem Zuruf. Das Release-Verfahren gehört dem Repo: `ship` führt dessen `.claude/commands/release.md` aus und endet ohne sie nach dem Landen.
 
 ## Handoff-Verzeichnis
 
