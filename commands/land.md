@@ -117,6 +117,11 @@ Nutzer-Argumente: `$ARGUMENTS`
    Was geprüft wurde, mit konkreten Ergebnissen — nicht nur „getestet".
    ```
 
+   **Issue-Bezug bewusst setzen.** Welche Issues bearbeitet diese Arbeit? Quellen: Branch-Name (`fix/1530-…`), Commit-Messages, der Auftrag der Session. Je Issue (`gh issue view <n> --json title,body,state`) gegen den Diff halten:
+   - erledigt es **jeden** Punkt des Issues → `Fixes #<n>` in den Body (GitHub schließt beim Merge; in einem anderen Repo `Fixes owner/repo#<n>`),
+   - erledigt es nur einen Teil → `Refs #<n>`, und der erste Absatz sagt, was offen bleibt,
+   - nur als Kontext erwähnt → keine Zeile.
+
    ```bash
    gh pr create --base <default-branch> --title "type(scope): aussage" --body-file /tmp/pr-body.md
    ```
@@ -178,7 +183,18 @@ Nutzer-Argumente: `$ARGUMENTS`
 
     Der Merge-Commit muss dort stehen. Steht er nicht, obwohl `gh pr view <N> --json mergedAt` gesetzt ist: der Silent-Merge-in-toten-Base aus Schritt 8 ist eingetreten — `gh pr view <N> --json mergeCommit` liefert die SHA, die Commits sind im DAG und werden per `git cherry-pick` auf einen frischen Branch vom Default-Branch gerettet.
 
-    Kurze Zusammenfassung: gemergte PR-Nummer + SHA, welches Gate gelaufen ist, Branch-Status, ob CI noch nachläuft (falls sie nicht blockiert).
+    **Issues nachziehen.** `Fixes`-Issues müssen jetzt geschlossen sein, `Refs`-Issues brauchen eine Notiz:
+
+    ```bash
+    for u in $(gh pr view <N> --json closingIssuesReferences -q '.closingIssuesReferences[].url'); do
+      gh issue view "$u" --json url,state -q '"\(.url) \(.state)"'
+    done
+    ```
+
+    - Ein `Fixes`-Issue noch `OPEN` (z. B. Keyword im Commit statt im PR-Body, oder ein anderes Repo): `gh issue close <n> --reason completed --comment "Erledigt durch <owner/repo>#<N>."`
+    - Je `Refs`-Issue ein Kommentar: `Teilweise erledigt durch #<N>: <was>. Offen bleibt: <Punkte>.` Hat das Repo einen `claude-issue-sync`-Workflow, übernimmt der das; dann nur prüfen, dass er gelaufen ist.
+
+    Kurze Zusammenfassung: gemergte PR-Nummer + SHA, welches Gate gelaufen ist, Branch-Status, geschlossene oder kommentierte Issues, ob CI noch nachläuft (falls sie nicht blockiert).
 
 ## Nicht
 
