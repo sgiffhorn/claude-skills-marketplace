@@ -14,6 +14,7 @@ cp /tmp/claude-skills-marketplace/commands/*.md ~/.claude/commands/
 mkdir -p ~/.claude/bin
 cp /tmp/claude-skills-marketplace/bin/worktree-triage.sh ~/.claude/bin/
 chmod +x ~/.claude/bin/worktree-triage.sh
+cp -n /tmp/claude-skills-marketplace/cloud-spawn.example.md ~/.claude/cloud-spawn.md
 ```
 
 **Projektweit (nur in einem bestimmten Repo, landet mit im Repo):**
@@ -51,6 +52,14 @@ ersten Aufruf in dieser Reihenfolge:
 3. Sonst wird einmalig gefragt und die Antwort in `~/.claude/handoffs-dir` gemerkt —
    jeder weitere Aufruf, auch auf einem anderen Rechner, fragt nicht erneut, solange
    diese Datei existiert.
+
+## Cloud-Modus (optional)
+
+Handoffs mit `where: cloud` startet `backlog spawn` als Cloud-Chip, den der Nutzer über
+„In die Cloud senden“ losschickt; `backlog sync` holt das Ergebnis aus PR oder Branch
+zurück. Die Regeln dafür stehen in `~/.claude/cloud-spawn.md`, Vorlage ist
+`cloud-spawn.example.md`. `cp -n` überschreibt eine angepasste Fassung nicht. Fehlt die
+Datei, läuft alles lokal.
 
 ## Bekannte Einschränkung
 

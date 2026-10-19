@@ -53,8 +53,13 @@ repo: <derselbe Verzeichnisname wie im Dateinamen>
 status: open
 created: <YYYY-MM-DD, heute>
 next: <EIN Imperativsatz: der erste konkrete Schritt>
+where: <local | cloud>
 ---
 ```
+
+`where` entscheidet, ob `/backlog spawn` eine lokale Chip-Session oder eine
+Cloud-Session startet. `cloud` nur, wenn der **nächste** Schritt allein mit Repo und
+GitHub machbar ist; Kriterien in `~/.claude/cloud-spawn.md`. Im Zweifel `local`.
 
 `next` ist das Feld, das in der Rückstandsliste als einzige Zeile erscheint. Es muss ohne
 den Rest der Datei verständlich sein und konkret benennen, was zu tun ist — „Ingress-Lauf
