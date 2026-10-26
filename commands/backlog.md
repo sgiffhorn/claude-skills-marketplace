@@ -128,6 +128,11 @@ Danach die angelegten Chips auflisten, Cloud-Chips mit dem Hinweis „mit In die
 senden starten". Lokale Chips nie in die Cloud schicken: ihr Prompt verweist auf die
 Handoff-Datei auf dem lokalen Rechner.
 
+Wird eine Session direkt gestartet (`start_session` statt Chip), sie gleich danach per
+`detach_session` auf die oberste Ebene lösen. Sonst meldet jedes ihrer Turn-Enden sich
+in der `/backlog`-Session zurück, und das ist bei mehreren Starts nur Rauschen. Den
+Stand trägt die Handoff-Datei, nicht die Rückmeldung.
+
 ### `sync [<slug> <session-link>]`
 Holt die Ergebnisse der Cloud-Sitzungen ab. Mit Slug und Link wird zuerst der Link in
 `cloud-session` dieser Datei eingetragen. Dann für jede Datei mit `cloud-session`:
