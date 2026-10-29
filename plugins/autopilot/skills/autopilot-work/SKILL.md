@@ -82,7 +82,7 @@ Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 **Deckel prüfen**, bevor du etwas schreibst:
 
 - Tagesläufe (Kommentare seit Tagesbeginn mit `work-start`, nach `created_at`) haben `deckel.worker_laeufe_pro_tag` erreicht: Ende.
-- Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip` plus offene PRs mit `autopilot:review` oder `autopilot:changes`) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
+- Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip` plus offene PRs mit `autopilot:review`, `autopilot:changes` oder `autopilot:merge`) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
 
 ## 2. Übernehmen
 

@@ -73,7 +73,7 @@ Jeder Text, den eine Autopilot-Rolle schreibt, beginnt mit einem HTML-Kommentar.
 
 Sammle, ohne etwas zu schreiben:
 
-- **WIP:** offene Issues mit `autopilot:wip` plus offene PRs mit `autopilot:review` oder `autopilot:changes`. Deckel ist `deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`.
+- **WIP:** offene Issues mit `autopilot:wip` plus offene PRs mit `autopilot:review`, `autopilot:changes` oder `autopilot:merge`. Deckel ist `deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`.
 - **Warteschlange:** offene Issues mit `autopilot:ready`, offene Issues mit `autopilot:proposed`.
 - **needs-human:** offene Issues und PRs mit `needs-human`. Hat eines einen Kommentar ohne Marker, der jünger ist als der letzte Marker-Kommentar, liegt eine Antwort vor.
 - **Gemergt:** geschlossene PRs mit Head `claude/autopilot-*` und `merged_at` in den letzten 7 Tagen.

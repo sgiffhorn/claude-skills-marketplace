@@ -10,7 +10,7 @@ Du bist der Reviewer. Du hast die Spec nicht geschrieben und den Code nicht geba
 ## 0. Konfiguration lesen, sonst Ende
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
-2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `merge_methode`, `deckel.*`, Sperrliste, Klassen, Doku- und Testpflicht, UI-Beleg.
+2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `merge_methode`, `merge_weg`, `deckel.*`, Sperrliste, Klassen, Doku- und Testpflicht, UI-Beleg.
 3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben, Ende.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
@@ -54,7 +54,7 @@ seiten() {
 | Review schreiben | `gh api repos/$REPO/pulls/$P/reviews -f event=COMMENT -F body=@datei` |
 | Kommentar | `gh api repos/$REPO/issues/$P/comments -F body=@datei` |
 | Label setzen / nehmen | `gh api repos/$REPO/issues/$P/labels -f 'labels[]=autopilot:changes'` / `gh api -X DELETE repos/$REPO/issues/$P/labels/autopilot%3Areview` |
-| Merge | `gh api -X PUT repos/$REPO/pulls/$P/merge -f merge_method=squash -f sha=$HEAD_SHA -f commit_title="<Titel> (#$P)" -F commit_message=@datei` |
+| Merge (nur `merge_weg: api`) | `gh api -X PUT repos/$REPO/pulls/$P/merge -f merge_method=squash -f sha=$HEAD_SHA -f commit_title="<Titel> (#$P)" -F commit_message=@datei` |
 | Branch löschen | `gh api -X DELETE repos/$REPO/git/refs/heads/claude/autopilot-$N` |
 
 Reviews laufen unter demselben Account wie der PR. GitHub erlaubt dann weder `APPROVE` noch `REQUEST_CHANGES`, deshalb ist `event` immer `COMMENT`; das Urteil steht im Text und im Label.
@@ -107,7 +107,8 @@ Lies den ganzen Diff (`git diff origin/$DEFAULT...HEAD`), dann Punkt für Punkt:
 
 **a) Alles erfüllt, Gate grün:**
 
-- Stufe `autonom` und Klasse A, oder Klasse B mit Freigabe: Stack noch einmal prüfen, dann Merge per REST mit `merge_methode` aus der Konfiguration, `sha` gleich dem geprüften `head.sha`, Titel aus dem PR-Titel plus ` (#P)`, Message nach den Hausregeln (keine Signatur). Danach Branch löschen, `autopilot:review` nehmen, Kommentar `<!-- autopilot:merged -->` mit einer Zeile am PR. `Closes #N` schließt das Issue.
+- Stufe `autonom` und Klasse A, oder Klasse B mit Freigabe, und `merge_weg: label`: `head.sha` noch einmal lesen; ist er nicht mehr der geprüfte, kein Label, sondern Ende (der nächste Lauf prüft neu). Sonst Kommentar `<!-- autopilot:merged -->` mit Urteil und geprüftem `head.sha` am PR, `autopilot:review` nehmen, `autopilot:merge` setzen. Den Merge macht der Workflow des Repos; du rufst den Merge-Endpunkt nicht auf.
+- Stufe `autonom` und Klasse A, oder Klasse B mit Freigabe, und `merge_weg: api` (Vorgabe): Stack noch einmal prüfen, dann Merge per REST mit `merge_methode` aus der Konfiguration, `sha` gleich dem geprüften `head.sha`, Titel aus dem PR-Titel plus ` (#P)`, Message nach den Hausregeln (keine Signatur). Danach Branch löschen, `autopilot:review` nehmen, Kommentar `<!-- autopilot:merged -->` mit einer Zeile am PR. `Closes #N` schließt das Issue.
 - Stufe `begleitet`: nicht mergen. Review `<!-- autopilot:review-round -->` mit „Urteil: würde mergen“ und der Belegliste, dann wie 5c ohne Frage, nur mit dem Urteil.
 
 **b) Befunde, Runde kleiner als `deckel.review_runden`:** Review mit Marker `review-round`, Text:
