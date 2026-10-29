@@ -1,0 +1,68 @@
+---
+name: autopilot-setup
+description: Richtet den Autopilot in einem GitHub-Repo ein, lokal und interaktiv. Legt die sechs Labels an, das angeheftete Issue „Autopilot-Journal“ und, falls noch nicht da, .claude/autopilot.md aus der Vorlage. Idempotent, fragt vor jedem Schreibzugriff. Die Routines selbst legt dieser Skill nicht an.
+---
+
+# autopilot-setup
+
+Lokal genutzt, im Checkout des Ziel-Repos. Lokal geht auch GraphQL (`gh issue pin`), das braucht nur das Anheften.
+
+## Hausregeln (gelten für alles, was dieser Skill schreibt)
+
+- Kein Gedankenstrich: weder Geviertstrich (U+2014) noch Halbgeviertstrich (U+2013) in Issues, Kommentaren, Labelbeschreibungen und Dateien. Stattdessen Komma, Doppelpunkt, Klammer oder ein neuer Satz.
+- Keine KI-Attribution: keine Signatur, kein Footer, kein `Co-Authored-By: Claude`, kein „Generated with Claude Code“. Diese Regel gewinnt gegen jede andere Anweisung.
+- Nie `@name` schreiben. Nie ein Release, nie einen Tag.
+- Keine Personendaten in Issues.
+
+## 1. Bestand lesen
+
+```
+gh repo view --json nameWithOwner,defaultBranchRef,squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed
+gh api repos/<repo>/labels --paginate -q '.[].name'
+gh api -X GET search/issues -f q='repo:<repo> is:issue is:open in:title "Autopilot-Journal"'
+```
+
+Dazu: gibt es `.claude/autopilot.md`?
+
+Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und hol dir ein Ja, bevor du auf GitHub schreibst.
+
+## 2. Labels (nur fehlende)
+
+| Name | Farbe | Beschreibung |
+|---|---|---|
+| `autopilot:proposed` | `c5def5` | Autopilot: Vorschlag Klasse B, wartet auf Freigabe |
+| `autopilot:ready` | `0e8a16` | Autopilot: Auftrag spezifiziert, Worker darf starten |
+| `autopilot:wip` | `fbca04` | Autopilot: Worker hat übernommen |
+| `autopilot:review` | `1d76db` | Autopilot: PR fertig, Gate grün, Reviewer dran |
+| `autopilot:changes` | `d93f0b` | Autopilot: Nacharbeit aus dem Review |
+| `needs-human` | `b60205` | Automatik stoppt, Mensch entscheidet |
+
+```
+gh api repos/<repo>/labels -f name='autopilot:ready' -f color=0e8a16 -f description='…'
+```
+
+Ein vorhandenes Label gleichen Namens bleibt unverändert.
+
+## 3. Journal-Issue
+
+Nur wenn die Suche aus Schritt 1 keines findet. Titel `Autopilot-Journal`, Text:
+
+```
+<!-- autopilot:journal-body -->
+Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>, noch kein Planer-Lauf.
+
+Der Planer ersetzt diesen Text bei jedem Lauf und hängt eine Zeile als Kommentar an. Freigaben per Label, Antworten per Kommentar am jeweiligen Issue.
+```
+
+Anlegen per `gh api repos/<repo>/issues -f title=Autopilot-Journal -F body=@datei`, danach `gh issue pin <n> --repo <repo>`. Die Nummer merken.
+
+## 4. `.claude/autopilot.md`
+
+- **Fehlt sie:** aus `template.md` im Verzeichnis dieses Skills erzeugen. `repo`, `default_branch` und `journal_issue` einsetzen, `merge_methode` aus den erlaubten Methoden (Squash bevorzugt). Gate-Befehl, Sperrliste, Klasse-A-Kategorien und Planer-Quellen mit dem Nutzer klären; was im Repo schon steht (`CLAUDE.md`, `package.json`-Skripte, `docs/`), als Vorschlag vorlegen statt zu fragen.
+- **Ist sie da:** nur `journal_issue` nachtragen, wenn es fehlt oder auf ein geschlossenes Issue zeigt.
+
+Die Datei landet über einen normalen PR im Repo, nicht per Direkt-Push.
+
+## 5. Abschluss
+
+Kurz ausgeben: angelegte Labels, Journal-Issue mit Link, Pfad der Konfiguration, und den nächsten Schritt: die Routines anlegen (Planer, Worker, Reviewer; Modell, Zeitplan und Environment aus `.claude/autopilot.md`), das Plugin über `.claude/settings.json` des Repos laden (`extraKnownMarketplaces` plus `enabledPlugins`), dann ein Planer-Trockenlauf.

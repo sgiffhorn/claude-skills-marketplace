@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sgiffhorn-skills",
+  "description": "Eigene Claude-Code-Plugins. Die Slash-Commands unter commands/ bleiben Kopiervorlagen, siehe README.",
+  "owner": {
+    "name": "Sebastian Giffhorn"
+  },
+  "plugins": [
+    {
+      "name": "autopilot",
+      "description": "Autonomer Planer/Worker/Reviewer-Betrieb auf Claude-Code-Routines, abgestimmt nur ueber GitHub-Labels.",
+      "source": "./plugins/autopilot",
+      "category": "development"
+    }
+  ]
+}

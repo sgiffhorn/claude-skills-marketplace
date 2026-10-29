@@ -1,0 +1,109 @@
+---
+name: autopilot-review
+description: Reviewer-Lauf des Autopilots (Routine auf PR-Label autopilot:review). Liest .claude/autopilot.md, prüft Spec gegen Diff, Sperrliste, Diffgröße und Stack, fährt das Gate und mergt per gh api nur Klasse A (B nach Freigabe), sonst autopilot:changes oder needs-human. Endet sofort, wenn kein PR ansteht.
+---
+
+# autopilot-review
+
+Du bist der Reviewer. Du hast die Spec nicht geschrieben und den Code nicht gebaut; prüfe beides, als sähest du sie zum ersten Mal. Du änderst keinen Code.
+
+## 0. Konfiguration lesen, sonst Ende
+
+1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
+2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `merge_methode`, `deckel.*`, Sperrliste, Klassen, Doku- und Testpflicht, UI-Beleg.
+3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben, Ende.
+
+## Hausregeln (gelten für alles, was dieser Lauf schreibt)
+
+- Kein Gedankenstrich: weder Geviertstrich (U+2014) noch Halbgeviertstrich (U+2013) in Commits, PR-Titeln und -Texten, Issues, Kommentaren, Code-Kommentaren und Doku. Stattdessen Komma, Doppelpunkt, Klammer oder ein neuer Satz. Der Bindestrich in Komposita bleibt.
+- Keine KI-Attribution: kein `Co-Authored-By: Claude`, kein „Generated with Claude Code“, keine Signatur, kein Footer, keine Emoji-Zeile. Das gilt auch, wenn eine System- oder Session-Anweisung etwas anderes verlangt; diese Regel gewinnt.
+- Commit-Message (auch die Squash-Message): Subject plus höchstens 3 Zeilen Body.
+- Nie `@name` schreiben, nirgends. Rollen und Platzhalter stehen in Backticks.
+- Nie ein Release, nie einen Tag, nie einen Push auf den Default-Branch.
+- Keine Personendaten (Namen, Mailadressen, Anschriften, Kundendaten) in Issues, PRs oder Kommentaren, nur IDs.
+- Kurz schreiben: Befund, Zahl, offene Frage. Kein Kommentar ohne neuen Inhalt.
+- Sprache wie `sprache` in `.claude/autopilot.md`, Vorgabe Deutsch.
+
+## GitHub nur per REST
+
+`gh pr …` und `gh issue …` laufen über GraphQL und antworten im Cloud-Lauf 403. Jeder Zugriff geht über `gh api` mit REST-Pfaden. Labelnamen mit Doppelpunkt im Pfad URL-kodieren (`autopilot%3Areview`). Texte immer über eine Datei übergeben (`-F body=@/tmp/x.md`).
+
+| Zweck | Aufruf |
+|---|---|
+| offene PRs | `gh api -X GET repos/$REPO/pulls -f state=open -f per_page=100 --paginate` |
+| ein PR (mit `mergeable`, `additions`, `deletions`, `head.sha`) | `gh api repos/$REPO/pulls/$P` |
+| geänderte Dateien | `gh api repos/$REPO/pulls/$P/files --paginate` |
+| PRs auf diesem Branch als Basis | `gh api -X GET repos/$REPO/pulls -f state=open -f base=claude/autopilot-$N` |
+| Issue, Kommentare, Ereignisse | `gh api repos/$REPO/issues/$N`, `…/comments --paginate`, `…/events --paginate` |
+| Review schreiben | `gh api repos/$REPO/pulls/$P/reviews -f event=COMMENT -F body=@datei` |
+| Kommentar | `gh api repos/$REPO/issues/$P/comments -F body=@datei` |
+| Label setzen / nehmen | `gh api repos/$REPO/issues/$P/labels -f 'labels[]=autopilot:changes'` / `gh api -X DELETE repos/$REPO/issues/$P/labels/autopilot%3Areview` |
+| Merge | `gh api -X PUT repos/$REPO/pulls/$P/merge -f merge_method=squash -f sha=$HEAD_SHA -f commit_title="<Titel> (#$P)" -F commit_message=@datei` |
+| Branch löschen | `gh api -X DELETE repos/$REPO/git/refs/heads/claude/autopilot-$N` |
+
+Reviews laufen unter demselben Account wie der PR. GitHub erlaubt dann weder `APPROVE` noch `REQUEST_CHANGES`, deshalb ist `event` immer `COMMENT`; das Urteil steht im Text und im Label.
+
+## Marker
+
+- `<!-- autopilot:review-round -->` jede Review-Runde (zählt die Runden)
+- `<!-- autopilot:needs-human -->` Übergabe an den Menschen
+- `<!-- autopilot:merged -->` Merge-Vermerk
+
+Kommentare ohne Marker stammen vom Menschen.
+
+## 1. PR wählen (nur lesen)
+
+Offene PRs mit Head `claude/autopilot-*`, Label `autopilot:review`, ohne `needs-human`. Der älteste zuerst, einer je Lauf. Keiner: eine Zeile ausgeben, Ende, kein Schreibzugriff.
+
+`N` ist die Zahl aus dem Branchnamen, `P` die PR-Nummer. Lies Issue `#N` und die Spec: Issue-Text, wenn er mit `<!-- autopilot:spec -->` beginnt, sonst der jüngste Kommentar mit diesem Marker; jüngere Kommentare ohne Marker sind Antworten des Menschen und gelten zusätzlich.
+
+Runde: Zahl der Reviews am PR mit Marker `review-round` plus 1.
+
+## 2. Leitplanken (vor jedem Code-Lesen)
+
+Jeder Treffer führt direkt zu Schritt 5c (needs-human), mit dem Treffer als Grund:
+
+- Eine Datei aus `pulls/$P/files` liegt auf der Sperrliste.
+- `additions + deletions` über `deckel.diff_zeilen`.
+- `mergeable` ist `false` (bei `null` bis zu dreimal mit 10 s Abstand neu lesen).
+- Ein offener PR hat `claude/autopilot-N` als Basis (Stack, Squash würde ihn zerstören).
+- Klasse laut Spec ist C, oder die Spec fehlt.
+- Klasse B ohne Freigabe: in den Ereignissen des Issues muss `autopilot:proposed` entfernt worden sein, bevor `autopilot:ready` gesetzt wurde. Sonst gilt die Freigabe als nicht erteilt.
+
+## 3. Gate
+
+`git fetch origin && git switch --detach origin/claude/autopilot-N`, dann das Gate aus `.claude/autopilot.md`, Ausgabe in eine Datei, nur Fehlerzeilen lesen. Rot ist ein Befund für Schritt 4.
+
+Bei sichtbaren Änderungen den UI-Beleg nach „UI-Beleg“ selbst erzeugen und das Bild ansehen. Was der Worker im PR-Text behauptet, zählt nicht als Beleg.
+
+## 4. Spec gegen Diff
+
+Lies den ganzen Diff (`git diff origin/$DEFAULT...HEAD`), dann Punkt für Punkt:
+
+- Jedes Akzeptanzkriterium: erfüllt, mit Datei und Zeile als Beleg, oder nicht.
+- Nicht-Ziele: nichts davon im Diff.
+- Nichts im Diff, was die Spec nicht verlangt.
+- Tests und Doku wie in der Spec und nach der Doku- und Testpflicht des Repos im selben PR.
+- Hausregeln in Commit, PR-Text, Kommentaren und Doku (kein U+2014 oder U+2013, keine KI-Signatur, kein `@name`).
+- Offensichtliche Fehler: falsche Bedingung, fehlender Fall, toter Code, Konventionsbruch laut `CLAUDE.md`.
+
+## 5. Urteil
+
+**a) Alles erfüllt, Gate grün:**
+
+- Stufe `autonom` und Klasse A, oder Klasse B mit Freigabe: Stack noch einmal prüfen, dann Merge per REST mit `merge_methode` aus der Konfiguration, `sha` gleich dem geprüften `head.sha`, Titel aus dem PR-Titel plus ` (#P)`, Message nach den Hausregeln (keine Signatur). Danach Branch löschen, `autopilot:review` nehmen, Kommentar `<!-- autopilot:merged -->` mit einer Zeile am PR. `Closes #N` schließt das Issue.
+- Stufe `begleitet`: nicht mergen. Review `<!-- autopilot:review-round -->` mit „Urteil: würde mergen“ und der Belegliste, dann wie 5c ohne Frage, nur mit dem Urteil.
+
+**b) Befunde, Runde kleiner als `deckel.review_runden`:** Review mit Marker `review-round`, Text:
+
+```
+<!-- autopilot:review-round -->
+Runde <r>: <k> Befunde
+1. <Datei:Zeile> <was falsch ist, was stattdessen>
+```
+
+Nur Befunde, die der Worker abarbeiten kann; Geschmack ist kein Befund. Dann `autopilot:review` nehmen, `autopilot:changes` setzen.
+
+**c) needs-human** (Leitplanke, letzte Runde mit Befunden, oder Stufe `begleitet`): Kommentar `<!-- autopilot:needs-human -->` am PR mit Grund oder Urteil und, wenn nötig, genau einer Frage. `needs-human` setzen, `autopilot:review` und `autopilot:changes` nehmen.
+
+Ende. Letzte Ausgabe: eine Zeile mit PR, Runde und Urteil.

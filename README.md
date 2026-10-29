@@ -1,6 +1,6 @@
 # claude-skills-marketplace
 
-Fünf Custom Slash-Commands für Claude Code plus ein Hilfsskript, zum Kopieren, nicht als Plugin.
+Fünf Custom Slash-Commands für Claude Code plus ein Hilfsskript, zum Kopieren, nicht als Plugin. Dazu ein echtes Plugin, `autopilot` (siehe unten).
 
 **Warum kein Plugin:** Claude-Code-Plugin-Commands sind immer namespaced (`/plugin-name:command-name`), es gibt keinen Weg zu einem bare `/backlog`. Wer den kurzen Befehl will, muss die Datei stattdessen in sein eigenes `.claude/commands/` legen — dann lädt Claude Code sie unter ihrem Dateinamen, ohne Präfix.
 
@@ -40,6 +40,20 @@ Danach: `/backlog`, `/handoff`, `/finish`, `/land`, `/ship`, wie gewohnt, kein P
 - **`finish`**: schließt eine Session ab: prüft ehrlich gegen die Subtasks und DoD der Handoff-Datei, ob die Arbeit wirklich fertig ist, räumt die eigene Kladde auf und verschiebt die Datei erst dann nach `done/`. `backlog` schickt seine Chips am Ende hierher.
 - **`land`**: Commit, PR und Merge in einem Zug. Diese Version ist **repo-agnostisch**: sie erkennt Repo-Name, Default-Branch und Merge-Methode selbst über `gh repo view`, statt sie hart zu verdrahten.
 - **`ship`**: `land` und danach das Release in einem Zuruf. Das Release-Verfahren gehört dem Repo: `ship` führt dessen `.claude/commands/release.md` aus und endet ohne sie nach dem Landen.
+
+## Plugin `autopilot`
+
+Echtes Plugin (Namespace `autopilot:`), weil Routines es aus diesem Marketplace laden. Planer, Worker und Reviewer laufen als Claude-Code-Routines und stimmen sich nur über GitHub-Labels ab; `autopilot-setup` richtet ein Repo lokal ein. Was ein Repo besonders macht (Gate, Sperrliste, Klassen, Deckel), steht in dessen `.claude/autopilot.md`, Vorlage unter `plugins/autopilot/skills/autopilot-setup/template.md`.
+
+```bash
+claude plugin marketplace add sgiffhorn/claude-skills-marketplace
+```
+
+```bash
+claude plugin install autopilot@sgiffhorn-skills
+```
+
+Für Routines lädt das Ziel-Repo das Plugin über `extraKnownMarketplaces` und `enabledPlugins` in seiner `.claude/settings.json`. Die Skills sprechen GitHub nur per `gh api` (REST) an, weil `gh pr` und `gh issue` im Cloud-Lauf 403 liefern, und tragen die Hausregeln selbst, weil die Cloud `~/.claude/CLAUDE.md` nicht sieht.
 
 ## Handoff-Verzeichnis
 
