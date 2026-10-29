@@ -65,4 +65,10 @@ Die Datei landet über einen normalen PR im Repo, nicht per Direkt-Push.
 
 ## 5. Abschluss
 
-Kurz ausgeben: angelegte Labels, Journal-Issue mit Link, Pfad der Konfiguration, und den nächsten Schritt: die Routines anlegen (Planer, Worker, Reviewer; Modell, Zeitplan und Environment aus `.claude/autopilot.md`), das Plugin über `.claude/settings.json` des Repos laden (`extraKnownMarketplaces` plus `enabledPlugins`), dann ein Planer-Trockenlauf.
+Kurz ausgeben: angelegte Labels, Journal-Issue mit Link, Pfad der Konfiguration, und den nächsten Schritt: die Routines anlegen (Planer, Worker, Reviewer; Modell, Zeitplan und Environment aus `.claude/autopilot.md`), dann ein Planer-Trockenlauf.
+
+Für die Routines gilt:
+
+- **Laden:** Die Cloud installiert kein Plugin aus `.claude/settings.json` (`extraKnownMarketplaces`, `enabledPlugins`), und die Routine-Felder `enabled_plugins` und `extra_marketplaces` übernimmt die API nicht. Der Routine-Prompt klont deshalb `sgiffhorn/claude-skills-marketplace` nach `/tmp/autopilot-skills` und befolgt `plugins/autopilot/skills/autopilot-<rolle>/SKILL.md`. Änderungen an den Skills wirken so ab dem nächsten Lauf.
+- **Connectors:** Die API hängt beim `create` alle claude.ai-Connectors des Accounts an. Danach die Routine mit `clear_mcp_connections: true` aktualisieren; keine Rolle braucht einen.
+- **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs; Reviewer: `autopilot:review` an PRs).

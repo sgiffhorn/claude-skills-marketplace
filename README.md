@@ -53,7 +53,7 @@ claude plugin marketplace add sgiffhorn/claude-skills-marketplace
 claude plugin install autopilot@sgiffhorn-skills
 ```
 
-Für Routines lädt das Ziel-Repo das Plugin über `extraKnownMarketplaces` und `enabledPlugins` in seiner `.claude/settings.json`. Die Skills sprechen GitHub nur per `gh api` (REST) an, weil `gh pr` und `gh issue` im Cloud-Lauf 403 liefern, und tragen die Hausregeln selbst, weil die Cloud `~/.claude/CLAUDE.md` nicht sieht.
+Routines laden das Plugin nicht über `.claude/settings.json`, das installiert die Cloud nicht. Der Routine-Prompt klont dieses Repo nach `/tmp/autopilot-skills` und befolgt die `SKILL.md` seiner Rolle. Die Skills sprechen GitHub nur per `gh api` (REST) mit Seitenschleife an, weil `gh pr`, `gh issue`, `search/issues` und `--paginate` im Cloud-Lauf 403 liefern, und tragen die Hausregeln selbst, weil die Cloud `~/.claude/CLAUDE.md` nicht sieht.
 
 ## Handoff-Verzeichnis
 
