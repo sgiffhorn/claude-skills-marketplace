@@ -32,7 +32,7 @@ Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und h
 |---|---|---|
 | `autopilot:proposed` | `c5def5` | Autopilot: Vorschlag Klasse B, wartet auf Freigabe |
 | `autopilot:ready` | `0e8a16` | Autopilot: Auftrag spezifiziert, Worker darf starten |
-| `autopilot:wip` | `fbca04` | Autopilot: Worker hat übernommen |
+| `autopilot:wip` | `fbca04` | Autopilot: in Arbeit, bis zum Merge |
 | `autopilot:review` | `1d76db` | Autopilot: PR fertig, Gate grün, Reviewer dran |
 | `autopilot:changes` | `d93f0b` | Autopilot: Nacharbeit aus dem Review |
 | `autopilot:merge` | `5319e7` | Autopilot: Review bestanden, Workflow mergt |
@@ -61,6 +61,8 @@ Anlegen per `gh api repos/<repo>/issues -f title=Autopilot-Journal -F body=@date
 
 - **Fehlt sie:** aus `template.md` im Verzeichnis dieses Skills erzeugen. `repo`, `default_branch` und `journal_issue` einsetzen, `merge_methode` aus den erlaubten Methoden (Squash bevorzugt). Gate-Befehl, Sperrliste, Klasse-A-Kategorien und Planer-Quellen mit dem Nutzer klären; was im Repo schon steht (`CLAUDE.md`, `package.json`-Skripte, `docs/`), als Vorschlag vorlegen statt zu fragen.
 - **Ist sie da:** nur `journal_issue` nachtragen, wenn es fehlt oder auf ein geschlossenes Issue zeigt.
+
+Im selben PR in `.claude/settings.json` des Repos `"attribution": {"commit": "", "pr": "", "sessionUrl": false}` ergänzen, damit Cloud-Läufe keine Signatur an Commits und PRs hängen.
 
 Die Datei landet über einen normalen PR im Repo, nicht per Direkt-Push.
 
