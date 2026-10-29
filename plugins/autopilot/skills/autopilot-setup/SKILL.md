@@ -1,6 +1,6 @@
 ---
 name: autopilot-setup
-description: Richtet den Autopilot in einem GitHub-Repo ein, lokal und interaktiv. Legt die sechs Labels an, das angeheftete Issue „Autopilot-Journal“ und, falls noch nicht da, .claude/autopilot.md aus der Vorlage. Idempotent, fragt vor jedem Schreibzugriff. Die Routines selbst legt dieser Skill nicht an.
+description: Richtet den Autopilot in einem GitHub-Repo ein, lokal und interaktiv. Legt die Labels an, das angeheftete Issue „Autopilot-Journal“ und, falls noch nicht da, .claude/autopilot.md aus der Vorlage. Idempotent, fragt vor jedem Schreibzugriff. Die Routines selbst legt dieser Skill nicht an.
 ---
 
 # autopilot-setup
@@ -35,6 +35,7 @@ Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und h
 | `autopilot:wip` | `fbca04` | Autopilot: Worker hat übernommen |
 | `autopilot:review` | `1d76db` | Autopilot: PR fertig, Gate grün, Reviewer dran |
 | `autopilot:changes` | `d93f0b` | Autopilot: Nacharbeit aus dem Review |
+| `autopilot:merge` | `5319e7` | Autopilot: Review bestanden, Workflow mergt |
 | `needs-human` | `b60205` | Automatik stoppt, Mensch entscheidet |
 
 ```
