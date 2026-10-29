@@ -1,6 +1,6 @@
 ---
 name: autopilot-review
-description: Reviewer-Lauf des Autopilots (Routine auf PR-Label autopilot:review). Liest .claude/autopilot.md, prüft Spec gegen Diff, Sperrliste, Diffgröße und Stack, fährt das Gate und mergt per gh api nur Klasse A (B nach Freigabe), sonst autopilot:changes oder needs-human. Endet sofort, wenn kein PR ansteht.
+description: Reviewer-Lauf des Autopilots auf PR-Label autopilot:review, als GitHub-Action (merge_weg action) oder Routine. Liest .claude/autopilot.md, prüft Spec gegen Diff, Sperrliste, Diffgröße, Stack und Gate. In der Action liefert er nur ein JSON-Urteil (merge, changes, needs-human, skip), der Workflow schreibt und mergt; als Routine schreibt er selbst. Endet sofort, wenn kein PR ansteht.
 ---
 
 # autopilot-review
@@ -11,7 +11,22 @@ Du bist der Reviewer. Du hast die Spec nicht geschrieben und den Code nicht geba
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
 2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `merge_methode`, `merge_weg`, `deckel.*`, Sperrliste, Klassen, Doku- und Testpflicht, UI-Beleg.
-3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben, Ende.
+3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben, Ende (in der Action: Urteil `skip`).
+
+## Laufumgebung
+
+**Action** (`merge_weg: action`, Vorgabe für neue Repos): Der Workflow `.github/workflows/autopilot-review.yml` des Repos startet dich, nachdem `ci.yml` für den Head-SHA fertig ist. Dort gilt:
+
+- Der Prompt nennt PR, Head-Branch, Head-SHA und das Ergebnis von `ci.yml`. Schritt 1 entfällt bis auf das Lesen von Issue und Spec.
+- Dein GitHub-Token darf nur lesen. Du schreibst nichts auf GitHub: kein Label, kein Kommentar, kein Review, kein Merge. Was geschehen soll, steht in deiner strukturierten Ausgabe (Schritt 5), der Workflow führt es aus und prüft die harten Leitplanken (Stufe, SHA, CI, Diffgröße, Stack, `.github/` und `.claude/`) selbst noch einmal.
+- Der Arbeitsbaum ist der Default-Branch. Den PR liest du nur über Git: `git diff origin/$DEFAULT...origin/<head>`, `git show origin/<head>:<pfad>`, `git log`. Nicht auschecken, nicht fetchen, nichts ausführen.
+- Gate: das Ergebnis von `ci.yml` aus dem Prompt, kein eigener Lauf. Ist es `failure`, lies die Fehlerzeilen des Laufs (`gh api repos/$REPO/actions/runs/<id>/jobs`, dann `gh api repos/$REPO/actions/jobs/<job-id>/logs`, nur die Zeilen um `error`/`FAIL`) und mach sie zu Befunden.
+- Kein UI-Beleg: die App läuft in der Action nicht. Bei sichtbaren Änderungen prüfst du, dass der PR Pfad und HTTP-Status des Screenshots aus dem Worker-Lauf nennt und Tests die Änderung abdecken; fehlt beides, ist das ein Befund.
+- `gh api` erreicht GitHub direkt, `--paginate` geht hier; `seiten` brauchst du nicht.
+
+**Routine** (`merge_weg: api` oder `label`): Cloud-Session, GitHub über den Proxy, du schreibst selbst. In Cloud-Routines blockt der Auto-Mode den Merge-Aufruf ohne Organisations-Freigabe; dann `label` mit einem Merge-Workflow im Repo oder gleich die Action.
+
+Läufst du als Routine und `merge_weg` ist `action`, reviewt der Workflow: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
 
@@ -27,9 +42,9 @@ Du bist der Reviewer. Du hast die Spec nicht geschrieben und den Code nicht geba
 
 ## GitHub nur per REST
 
-`gh pr …` und `gh issue …` laufen über GraphQL und antworten im Cloud-Lauf 403. Jeder Zugriff geht über `gh api` mit REST-Pfaden. Labelnamen mit Doppelpunkt im Pfad URL-kodieren (`autopilot%3Areview`). Texte immer über eine Datei übergeben (`-F body=@/tmp/x.md`).
+`gh pr …` und `gh issue …` laufen über GraphQL und antworten im Cloud-Lauf 403; in der Action bleibt es der Einheitlichkeit halber bei REST. Jeder Zugriff geht über `gh api` mit REST-Pfaden. Labelnamen mit Doppelpunkt im Pfad URL-kodieren (`autopilot%3Areview`). Texte immer über eine Datei übergeben (`-F body=@/tmp/x.md`).
 
-Kein `--paginate`: es folgt den `Link`-Headern auf `repositories/<id>/…`, und der Proxy erlaubt nur Pfade unter `repos/<owner>/<repo>/`, also 403. Listen holst du Seite für Seite mit dieser Funktion; sie hört bei der ersten Seite unter 100 Einträgen auf und gibt ein JSON-Array zurück:
+Im Cloud-Lauf kein `--paginate`: es folgt den `Link`-Headern auf `repositories/<id>/…`, und der Proxy erlaubt nur Pfade unter `repos/<owner>/<repo>/`, also 403. Listen holst du Seite für Seite mit dieser Funktion; sie hört bei der ersten Seite unter 100 Einträgen auf und gibt ein JSON-Array zurück:
 
 ```
 seiten() {
@@ -54,10 +69,10 @@ seiten() {
 | Review schreiben | `gh api repos/$REPO/pulls/$P/reviews -f event=COMMENT -F body=@datei` |
 | Kommentar | `gh api repos/$REPO/issues/$P/comments -F body=@datei` |
 | Label setzen / nehmen | `gh api repos/$REPO/issues/$P/labels -f 'labels[]=autopilot:changes'` / `gh api -X DELETE repos/$REPO/issues/$P/labels/autopilot%3Areview` |
-| Merge (nur `merge_weg: api`) | `gh api -X PUT repos/$REPO/pulls/$P/merge -f merge_method=squash -f sha=$HEAD_SHA -f commit_title="<Titel> (#$P)" -F commit_message=@datei` |
+| Merge (nur Routine mit `merge_weg: api`) | `gh api -X PUT repos/$REPO/pulls/$P/merge -f merge_method=squash -f sha=$HEAD_SHA -f commit_title="<Titel> (#$P)" -F commit_message=@datei` |
 | Branch löschen | `gh api -X DELETE repos/$REPO/git/refs/heads/claude/autopilot-$N` |
 
-Reviews laufen unter demselben Account wie der PR. GitHub erlaubt dann weder `APPROVE` noch `REQUEST_CHANGES`, deshalb ist `event` immer `COMMENT`; das Urteil steht im Text und im Label.
+Die Schreib-Aufrufe der Tabelle gelten nur für die Routine. Reviews laufen dort unter demselben Account wie der PR. GitHub erlaubt dann weder `APPROVE` noch `REQUEST_CHANGES`, deshalb ist `event` immer `COMMENT`; das Urteil steht im Text und im Label.
 
 ## Marker
 
@@ -88,13 +103,13 @@ Jeder Treffer führt direkt zu Schritt 5c (needs-human), mit dem Treffer als Gru
 
 ## 3. Gate
 
-`git fetch origin && git switch --detach origin/claude/autopilot-N`, dann das Gate aus `.claude/autopilot.md`, Ausgabe in eine Datei, nur Fehlerzeilen lesen. Rot ist ein Befund für Schritt 4.
+In der Action: siehe Laufumgebung. Als Routine: `git fetch origin && git switch --detach origin/claude/autopilot-N`, dann das Gate aus `.claude/autopilot.md`, Ausgabe in eine Datei, nur Fehlerzeilen lesen. Rot ist ein Befund für Schritt 4.
 
 Bei sichtbaren Änderungen den UI-Beleg nach „UI-Beleg“ selbst erzeugen und das Bild ansehen. Was der Worker im PR-Text behauptet, zählt nicht als Beleg.
 
 ## 4. Spec gegen Diff
 
-Lies den ganzen Diff (`git diff origin/$DEFAULT...HEAD`), dann Punkt für Punkt:
+Lies den ganzen Diff (Routine: `git diff origin/$DEFAULT...HEAD`, Action: `git diff origin/$DEFAULT...origin/<head>`), dann Punkt für Punkt:
 
 - Jedes Akzeptanzkriterium: erfüllt, mit Datei und Zeile als Beleg, oder nicht.
 - Nicht-Ziele: nichts davon im Diff.
@@ -104,6 +119,17 @@ Lies den ganzen Diff (`git diff origin/$DEFAULT...HEAD`), dann Punkt für Punkt:
 - Offensichtliche Fehler: falsche Bedingung, fehlender Fall, toter Code, Konventionsbruch laut `CLAUDE.md`.
 
 ## 5. Urteil
+
+**In der Action** schreibst du nicht, sondern gibst als strukturierte Ausgabe zurück:
+
+| Feld | Inhalt |
+|---|---|
+| `urteil` | `merge` (Fall a), `changes` (Fall b), `needs-human` (Fall c, auch Stufe `begleitet`), `skip` (PR nicht mehr offen, ohne `autopilot:review`, mit `needs-human`, oder Stufe `trockenlauf`) |
+| `sha` | der geprüfte `head.sha` |
+| `runde` | die Runde aus Schritt 1 |
+| `text` | der Text, den der Workflow postet: bei `merge` der Kommentar mit `<!-- autopilot:merged -->`, Urteil und geprüftem SHA; bei `changes` das Review mit `<!-- autopilot:review-round -->` im Format aus b); bei `needs-human` der Kommentar mit `<!-- autopilot:needs-human -->`, Grund und höchstens einer Frage |
+
+Der Workflow setzt die Labels wie unten beschrieben, mergt mit `sha` gleich dem geprüften SHA, schließt die verlinkten Issues und nimmt `autopilot:wip`. Die Abschnitte a bis c beschreiben, welches Urteil wann gilt; ihre Schreibschritte gelten nur für die Routine.
 
 **a) Alles erfüllt, Gate grün:**
 

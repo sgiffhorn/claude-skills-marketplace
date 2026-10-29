@@ -1,0 +1,301 @@
+name: autopilot-review
+
+# Vorlage aus dem Skill autopilot-setup (Plugin autopilot). Reviewer des
+# Autopilots: laeuft, sobald der Worker einen PR mit autopilot:review
+# beschriftet, und mergt ohne menschlichen Klick.
+#
+# Anpassen: CI_WORKFLOW (PR-Gate des Repos, braucht pull_request und
+# workflow_dispatch), runs-on (self-hosted spart Actions-Minuten; der Gate-Job
+# wartet bis zu 60 Minuten), Secret CLAUDE_CODE_OAUTH_TOKEN.
+#
+# Drei Jobs, damit das Modell selbst nichts schreiben kann:
+#   gate:   wartet auf CI_WORKFLOW fuer den Head-SHA (stoesst einen
+#           fehlenden oder abgebrochenen Lauf einmal neu an).
+#   review: Opus mit dem Skill autopilot-review und einem Token, der nur
+#           lesen darf. Ergebnis ist ein JSON-Urteil (merge, changes,
+#           needs-human, skip), kein Schreibzugriff.
+#   apply:  fuehrt das Urteil aus: Review-Kommentar und Labels, oder
+#           Squash-Merge mit sha = gepruefter Head, Issue schliessen.
+#
+# pull_request_target statt pull_request: die Workflow-Datei kommt vom
+# Default-Branch, ein PR kann sein eigenes Review also nicht umschreiben.
+# Ausgecheckt wird der Default-Branch; der PR-Head liegt nur als Ref zum
+# Lesen vor, nichts davon laeuft.
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions: {}
+
+concurrency:
+  group: autopilot-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  PR: ${{ github.event.pull_request.number }}
+  SHA: ${{ github.event.pull_request.head.sha }}
+  HEAD_REF: ${{ github.event.pull_request.head.ref }}
+  # Das PR-Gate des Repos; braucht pull_request und workflow_dispatch.
+  CI_WORKFLOW: ci.yml
+
+jobs:
+  gate:
+    if: >-
+      github.event.label.name == 'autopilot:review' &&
+      startsWith(github.event.pull_request.head.ref, 'claude/autopilot-') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      !contains(github.event.pull_request.labels.*.name, 'needs-human')
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    # Hoechstens ein wartender Gate-Job: auf wenigen self-hosted Runnern
+    # wuerden mehrere wartende Jobs dem CI den Runner nehmen.
+    concurrency:
+      group: autopilot-review-gate
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      ci: ${{ steps.wait.outputs.ci }}
+      ci_url: ${{ steps.wait.outputs.url }}
+    steps:
+      - name: Auf CI warten
+        id: wait
+        run: |
+          deadline=$((SECONDS + 3600))
+          neu=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            run=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW/runs" \
+              -f head_sha="$SHA" -f per_page=20 \
+              -q '[.workflow_runs[] | select(.event == "pull_request" or .event == "workflow_dispatch")]
+                  | sort_by(.created_at) | last // empty
+                  | "\(.id) \(.status) \(.conclusion) \(.html_url)"')
+            read -r id status conclusion url <<<"$run" || true
+            if [ -z "$run" ]; then
+              # Eine Concurrency-Gruppe kann wartende Laeufe still verdraengen.
+              # Nach 5 Minuten ohne Lauf einmal neu anstossen.
+              if [ "$neu" = 0 ] && [ "$SECONDS" -gt 300 ]; then
+                gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW/dispatches" -f ref="$HEAD_REF"
+                neu=1
+              fi
+            elif [ "$status" = completed ]; then
+              case "$conclusion" in
+                success|failure)
+                  echo "ci=$conclusion" >>"$GITHUB_OUTPUT"
+                  echo "url=$url" >>"$GITHUB_OUTPUT"
+                  echo "$CI_WORKFLOW $conclusion: $url"
+                  exit 0
+                  ;;
+                *)
+                  if [ "$neu" = 0 ]; then
+                    gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun"
+                    neu=1
+                  else
+                    break
+                  fi
+                  ;;
+              esac
+            fi
+            sleep 30
+          done
+          echo "ci=timeout" >>"$GITHUB_OUTPUT"
+          echo "url=${url:-}" >>"$GITHUB_OUTPUT"
+          echo "$CI_WORKFLOW ohne Ergebnis fuer $SHA" >&2
+
+  review:
+    needs: gate
+    if: needs.gate.outputs.ci == 'success' || needs.gate.outputs.ci == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Nur lesen: der Token, den das Modell bekommt, kann nichts schreiben.
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      actions: read
+      checks: read
+    outputs:
+      verdict: ${{ steps.claude.outputs.structured_output }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: PR-Head und Skill holen
+        run: |
+          git fetch --no-tags origin "+refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+          rm -rf .autopilot-skills
+          git clone --depth 1 https://github.com/sgiffhorn/claude-skills-marketplace .autopilot-skills
+
+      - uses: anthropics/claude-code-action@v1
+        id: claude
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          # Aus: Tool-Ergebnisse koennen Issue-Texte ins Log schreiben.
+          show_full_output: false
+          claude_args: >-
+            --model opus
+            --allowed-tools "Read,Glob,Grep,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git rev-parse *),Bash(git merge-base *),Bash(gh api *),Bash(jq *)"
+            --json-schema '{"type":"object","properties":{"urteil":{"type":"string","enum":["merge","changes","needs-human","skip"]},"sha":{"type":"string"},"runde":{"type":"integer"},"text":{"type":"string"}},"required":["urteil","sha","text"]}'
+          prompt: |
+            Autopilot-Rolle autopilot-review, Laufumgebung GitHub-Action.
+            Lies .autopilot-skills/plugins/autopilot/skills/autopilot-review/SKILL.md
+            vollstaendig und befolge sie, Abschnitt "Laufumgebung Action".
+
+            - Repository: ${{ github.repository }}
+            - PR: #${{ github.event.pull_request.number }}
+            - Head-Branch: ${{ github.event.pull_request.head.ref }}, liegt als origin/${{ github.event.pull_request.head.ref }} vor
+            - Head-SHA beim Labeln: ${{ github.event.pull_request.head.sha }}
+            - Ergebnis von ${{ env.CI_WORKFLOW }} fuer diesen SHA: ${{ needs.gate.outputs.ci }} (${{ needs.gate.outputs.ci_url }})
+
+            Du schreibst nichts auf GitHub. Dein Ergebnis ist die strukturierte Ausgabe.
+
+  apply:
+    needs: [gate, review]
+    if: >-
+      !cancelled() && needs.gate.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      CI_RESULT: ${{ needs.gate.outputs.ci }}
+      CI_URL: ${{ needs.gate.outputs.ci_url }}
+      REVIEW_RESULT: ${{ needs.review.result }}
+      VERDICT: ${{ needs.review.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .claude/autopilot.md
+          sparse-checkout-cone-mode: false
+
+      - name: Urteil lesen
+        id: v
+        run: |
+          N=${HEAD_REF#claude/autopilot-}
+          N=${N%%[^0-9]*}
+          echo "issue=$N" >>"$GITHUB_OUTPUT"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [ "$CI_RESULT" = timeout ]; then
+            echo "urteil=needs-human" >>"$GITHUB_OUTPUT"
+            printf '%s lieferte fuer %s kein Ergebnis (%s).\n' "$CI_WORKFLOW" "$SHA" "$run_url" >"$RUNNER_TEMP/text.md"
+            exit 0
+          fi
+          if [ "$REVIEW_RESULT" != success ] || [ -z "$VERDICT" ]; then
+            echo "urteil=needs-human" >>"$GITHUB_OUTPUT"
+            printf 'Review-Lauf ohne Urteil (%s).\n' "$run_url" >"$RUNNER_TEMP/text.md"
+            exit 0
+          fi
+          jq -r .text <<<"$VERDICT" >"$RUNNER_TEMP/text.md"
+          echo "urteil=$(jq -r .urteil <<<"$VERDICT")" >>"$GITHUB_OUTPUT"
+          echo "sha=$(jq -r .sha <<<"$VERDICT")" >>"$GITHUB_OUTPUT"
+
+      - name: Zustand pruefen
+        id: state
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+          head=$(jq -r .head.sha <<<"$pr")
+          offen=$(jq -r .state <<<"$pr")
+          label=$(jq -r '[.labels[].name] | index("autopilot:review") != null' <<<"$pr")
+          # Hat sich der Head bewegt oder ist das Label weg, gilt das Urteil
+          # nicht mehr; der naechste Label-Wechsel startet ein neues Review.
+          if [ "$offen" != open ] || [ "$label" != true ] || [ "$head" != "$SHA" ]; then
+            echo "Zustand geaendert (state=$offen, label=$label, head=$head), keine Aktion"
+            echo "weiter=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "weiter=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge-Leitplanken
+        if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'merge'
+        env:
+          URTEIL_SHA: ${{ steps.v.outputs.sha }}
+        run: |
+          stop() { echo "Merge-Leitplanke: $1" | tee "$RUNNER_TEMP/grund.txt" >&2; exit 1; }
+          cfg=.claude/autopilot.md
+          stufe=$(sed -n 's/^stufe: *//p' "$cfg" | head -1)
+          deckel=$(sed -n 's/^ *diff_zeilen: *//p' "$cfg" | head -1)
+          [ "$stufe" = autonom ] || stop "stufe ist $stufe"
+          [ "$URTEIL_SHA" = "$SHA" ] || stop "Urteil gilt fuer $URTEIL_SHA, Head ist $SHA"
+          [ "$CI_RESULT" = success ] || stop "$CI_WORKFLOW ist $CI_RESULT"
+          zeilen=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q '.additions + .deletions')
+          [ "$zeilen" -le "${deckel:-400}" ] || stop "Diff $zeilen Zeilen, Deckel ${deckel:-400}"
+          stack=$(gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f base="$HEAD_REF" -q length)
+          [ "$stack" = 0 ] || stop "$stack offene PRs auf $HEAD_REF als Basis"
+          # Die Pfade, die den Autopilot selbst steuern, prueft der Workflow
+          # hart; den Rest der Sperrliste prueft das Review.
+          gesperrt=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --paginate \
+            -q '.[].filename | select(startswith(".github/") or startswith(".claude/"))' | tr '\n' ' ')
+          [ -z "$gesperrt" ] || stop "gesperrte Pfade im Diff: $gesperrt"
+
+      - name: Squash-Merge
+        if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'merge'
+        run: |
+          grep -q 'autopilot:merged' "$RUNNER_TEMP/text.md" \
+            || sed -i '1i <!-- autopilot:merged -->' "$RUNNER_TEMP/text.md"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$RUNNER_TEMP/text.md"
+          title=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q .title)
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/commits?per_page=100" \
+            -q '.[].commit.message' \
+            | grep -v -i -E 'generated (by|with) .*claude|co-authored-by: claude' \
+            > "$RUNNER_TEMP/message.txt" || true
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR/merge" \
+            -f merge_method=squash \
+            -f sha="$SHA" \
+            -f commit_title="$title (#$PR)" \
+            -F commit_message=@"$RUNNER_TEMP/message.txt"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/autopilot%3Areview" || true
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$HEAD_REF" || true
+
+      # Ein Merge mit dem GITHUB_TOKEN loest "Closes #N" nicht aus .
+      - name: Verlinkte Issues schliessen
+        if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'merge'
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q .body \
+            | grep -oiE "(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+" \
+            | grep -oE "[0-9]+" | sort -u \
+            | while read -r n; do
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$n/labels/autopilot%3Awip" || true
+                gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$n" -f state=closed -f state_reason=completed
+              done
+
+      - name: Nacharbeit
+        if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'changes'
+        run: |
+          grep -q 'autopilot:review-round' "$RUNNER_TEMP/text.md" \
+            || sed -i '1i <!-- autopilot:review-round -->' "$RUNNER_TEMP/text.md"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" -f event=COMMENT -F body=@"$RUNNER_TEMP/text.md"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/autopilot%3Areview" || true
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=autopilot:changes'
+
+      - name: An den Menschen
+        if: >-
+          failure() ||
+          (steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'needs-human')
+        env:
+          N: ${{ steps.v.outputs.issue }}
+        run: |
+          f="$RUNNER_TEMP/text.md"
+          if [ "${{ job.status }}" = failure ]; then
+            {
+              echo 'Review-Workflow gescheitert, nichts gemergt.'
+              [ -s "$RUNNER_TEMP/grund.txt" ] && cat "$RUNNER_TEMP/grund.txt"
+              echo "Lauf: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            } >"$f"
+          fi
+          grep -q 'autopilot:needs-human' "$f" || sed -i '1i <!-- autopilot:needs-human -->' "$f"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$f"
+          for l in autopilot%3Areview autopilot%3Achanges; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/$l" || true
+          done
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=needs-human'
+          if [ -n "${N:-}" ]; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$N/labels/autopilot%3Awip" || true
+            gh api "repos/$GITHUB_REPOSITORY/issues/$N/labels" -f 'labels[]=needs-human'
+          fi

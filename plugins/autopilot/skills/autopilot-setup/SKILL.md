@@ -1,6 +1,6 @@
 ---
 name: autopilot-setup
-description: Richtet den Autopilot in einem GitHub-Repo ein, lokal und interaktiv. Legt die Labels an, das angeheftete Issue „Autopilot-Journal“ und, falls noch nicht da, .claude/autopilot.md aus der Vorlage. Idempotent, fragt vor jedem Schreibzugriff. Die Routines selbst legt dieser Skill nicht an.
+description: Richtet den Autopilot in einem GitHub-Repo ein, lokal und interaktiv. Legt die Labels an, das angeheftete Issue „Autopilot-Journal“, falls noch nicht da .claude/autopilot.md aus der Vorlage und den Review-Workflow autopilot-review.yml. Idempotent, fragt vor jedem Schreibzugriff. Die Routines selbst legt dieser Skill nicht an.
 ---
 
 # autopilot-setup
@@ -22,7 +22,7 @@ gh api repos/<repo>/labels --paginate -q '.[].name'
 gh api -X GET search/issues -f q='repo:<repo> is:issue is:open in:title "Autopilot-Journal"'
 ```
 
-Dazu: gibt es `.claude/autopilot.md`?
+Dazu: gibt es `.claude/autopilot.md` und `.github/workflows/autopilot-review.yml`? Wie heißt der Workflow, der PRs prüft (das Gate in CI)?
 
 Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und hol dir ein Ja, bevor du auf GitHub schreibst.
 
@@ -35,7 +35,6 @@ Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und h
 | `autopilot:wip` | `fbca04` | Autopilot: in Arbeit, bis zum Merge |
 | `autopilot:review` | `1d76db` | Autopilot: PR fertig, Gate grün, Reviewer dran |
 | `autopilot:changes` | `d93f0b` | Autopilot: Nacharbeit aus dem Review |
-| `autopilot:merge` | `5319e7` | Autopilot: Review bestanden, Workflow mergt |
 | `needs-human` | `b60205` | Automatik stoppt, Mensch entscheidet |
 
 ```
@@ -66,12 +65,21 @@ Im selben PR in `.claude/settings.json` des Repos `"attribution": {"commit": "",
 
 Die Datei landet über einen normalen PR im Repo, nicht per Direkt-Push.
 
+## 4b. Review-Workflow (`merge_weg: action`)
+
+Der Reviewer läuft als GitHub-Action, nicht als Routine: in Cloud-Routines blockt der Auto-Mode den Merge, und eine Freigabe dafür gibt es dort nur über Organisations-Settings.
+
+1. `autopilot-review.yml` aus dem Verzeichnis dieses Skills nach `.github/workflows/autopilot-review.yml` kopieren, im selben PR wie Schritt 4.
+2. Anpassen: `CI_WORKFLOW` auf das PR-Gate des Repos. Dieser Workflow muss `pull_request` und `workflow_dispatch` als Auslöser haben (der Review-Workflow stößt einen fehlenden Lauf einmal per Dispatch an). Gibt es keinen, erst einen anlegen, sonst kein `autonom`. `runs-on` auf einen self-hosted Runner, wenn das Repo einen hat.
+3. Secret `CLAUDE_CODE_OAUTH_TOKEN` im Repo: Wert aus `claude setup-token` (Max-Abo), setzen per `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <repo>`; das Setzen macht der Nutzer, du siehst den Wert nie. Ist das Secret schon da (z. B. für eine andere Claude-Action), nichts tun.
+4. Den Workflow liest GitHub vom Default-Branch (`pull_request_target`); er wirkt erst nach dem Merge dieses PRs.
+
 ## 5. Abschluss
 
-Kurz ausgeben: angelegte Labels, Journal-Issue mit Link, Pfad der Konfiguration, und den nächsten Schritt: die Routines anlegen (Planer, Worker, Reviewer; Modell, Zeitplan und Environment aus `.claude/autopilot.md`), dann ein Planer-Trockenlauf.
+Kurz ausgeben: angelegte Labels, Journal-Issue mit Link, Pfad der Konfiguration, und den nächsten Schritt: die Routines anlegen (Planer und Worker; Modell, Zeitplan und Environment aus `.claude/autopilot.md`; der Reviewer ist der Workflow aus 4b), dann ein Planer-Trockenlauf.
 
 Für die Routines gilt:
 
 - **Laden:** Die Cloud installiert kein Plugin aus `.claude/settings.json` (`extraKnownMarketplaces`, `enabledPlugins`), und die Routine-Felder `enabled_plugins` und `extra_marketplaces` übernimmt die API nicht. Der Routine-Prompt klont deshalb `sgiffhorn/claude-skills-marketplace` nach `/tmp/autopilot-skills` und befolgt `plugins/autopilot/skills/autopilot-<rolle>/SKILL.md`. Änderungen an den Skills wirken so ab dem nächsten Lauf.
 - **Connectors:** Die API hängt beim `create` alle claude.ai-Connectors des Accounts an. Danach die Routine mit `clear_mcp_connections: true` aktualisieren; keine Rolle braucht einen.
-- **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs; Reviewer: `autopilot:review` an PRs).
+- **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs).

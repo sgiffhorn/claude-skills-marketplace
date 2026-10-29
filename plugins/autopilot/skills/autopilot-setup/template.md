@@ -9,13 +9,13 @@ stufe: trockenlauf
 sprache: de
 gate: npm test
 merge_methode: squash
-# api: Reviewer mergt per gh api. label: Reviewer setzt autopilot:merge, ein Workflow im Repo mergt
-# (in Cloud-Routines blockt der Auto-Mode den Merge-Aufruf, dann label)
-merge_weg: api
+# action: Reviewer laeuft als .github/workflows/autopilot-review.yml, der Workflow mergt
+# api: Reviewer-Routine mergt per gh api (Cloud-Auto-Mode blockt das ohne Org-Freigabe)
+# label: Reviewer-Routine setzt autopilot:merge, ein eigener Workflow im Repo mergt
+merge_weg: action
 environments:
   planer: NAME-plan
   worker: NAME-cloud
-  reviewer: NAME-cloud
 modelle:
   planer: opus
   worker: sonnet

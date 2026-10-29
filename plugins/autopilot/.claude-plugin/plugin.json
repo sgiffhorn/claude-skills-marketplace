@@ -1,7 +1,7 @@
 {
   "name": "autopilot",
-  "description": "Planer, Worker und Reviewer als Claude-Code-Routines. Sie stimmen sich nur ueber GitHub-Labels ab; was ein Repo besonders macht, steht in dessen .claude/autopilot.md.",
-  "version": "0.1.0",
+  "description": "Planer und Worker als Claude-Code-Routines, Reviewer als GitHub-Action. Sie stimmen sich nur ueber GitHub-Labels ab; was ein Repo besonders macht, steht in dessen .claude/autopilot.md.",
+  "version": "0.2.0",
   "author": {
     "name": "Sebastian Giffhorn"
   },
