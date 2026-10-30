@@ -80,7 +80,17 @@ Sammle, ohne etwas zu schreiben:
 - **needs-human:** offene Issues und PRs mit `needs-human`. Hat eines einen Kommentar ohne Marker, der jünger ist als der letzte Marker-Kommentar, liegt eine Antwort vor.
 - **Fragen an Aufträgen:** offene Issues mit `autopilot:proposed` oder `autopilot:ready` (ohne `autopilot:wip`), deren jüngster Kommentar keinen Marker hat und eine Frage enthält (ein `?` oder beginnt mit `**Frage:**`). Kommentare, die mit `**Ergänzung:**` beginnen oder keine Frage enthalten, sind Ergänzungen und brauchen keine Antwort.
 - **Gemergt:** geschlossene PRs mit Head `claude/autopilot-*` und `merged_at` in den letzten 7 Tagen.
-- **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`.
+- **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`. Ein `work-start`, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt, hat ein Rennen verloren und zählt nicht, wie beim Deckel im Worker:
+
+  ```
+  TAG=$(date -u -d "$(TZ=Europe/Berlin date +%F) 00:00 $(TZ=Europe/Berlin date +%z)" +%FT%TZ)
+  seiten repos/$REPO/issues/comments -f since=$(date -u -d "$TAG 15 minutes ago" +%FT%TZ) | jq --arg tag "$TAG" '
+    [.[] | select(.body | startswith("<!-- autopilot:work-start -->"))] as $w
+    | [$w[] | . as $c | select(.created_at >= $tag)
+       | select(any($w[]; .issue_url == $c.issue_url and .id < $c.id
+           and ($c.created_at | fromdate) - (.created_at | fromdate) <= 900) | not)]
+    | length'
+  ```
 - **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue`: Sweep-Stand je Repo, Datum der letzten Inventur, letzter Bereich, Vorrat (geprüfte Kandidaten ohne Platz) und „bewertet, nicht übernommen“ mit Grund.
 
 ## 2. Hygiene
