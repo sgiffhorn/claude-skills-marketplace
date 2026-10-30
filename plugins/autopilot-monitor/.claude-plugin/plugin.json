@@ -1,7 +1,7 @@
 {
   "name": "autopilot-monitor",
   "description": "Panel neben dem Chat: Autopilot-Auftraege nach Labels, letzte Laeufe von Planer, Worker und Reviewer, Warnung wenn ein Deckel greift.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": {
     "name": "Sebastian Giffhorn"
   },
