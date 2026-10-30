@@ -29,7 +29,8 @@ deckel:
   offene_vorschlaege: 10
   pruefungen_pro_lauf: 15
   inventur_tage: 30
-  review_runden: 2
+  # ein neuer Befund je Runde ist Fortschritt; ein unbehobener aus der Vorrunde geht sofort an den Menschen
+  review_runden: 3
   gate_fehlschlaege: 2
   # Einfügungen plus Löschungen ohne Testdateien
   diff_zeilen: 400

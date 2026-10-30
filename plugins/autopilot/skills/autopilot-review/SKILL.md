@@ -137,7 +137,7 @@ Der Workflow setzt die Labels wie unten beschrieben, mergt mit `sha` gleich dem 
 - Stufe `autonom` und Klasse A, oder Klasse B mit Freigabe, und `merge_weg: api` (Vorgabe): Stack noch einmal prüfen, dann Merge per REST mit `merge_methode` aus der Konfiguration, `sha` gleich dem geprüften `head.sha`, Titel aus dem PR-Titel plus ` (#P)`, Message nach den Hausregeln (keine Signatur). Danach Branch löschen, `autopilot:review` nehmen, Kommentar `<!-- autopilot:merged -->` mit einer Zeile am PR. `Closes #N` schließt das Issue.
 - Stufe `begleitet`: nicht mergen. Review `<!-- autopilot:review-round -->` mit „Urteil: würde mergen“ und der Belegliste, dann wie 5c ohne Frage, nur mit dem Urteil.
 
-**b) Befunde, Runde kleiner als `deckel.review_runden`:** Review mit Marker `review-round`, Text:
+**b) Befunde, Runde kleiner als `deckel.review_runden`, und keiner wiederholt einen unbehobenen Befund der Vorrunde (gleiche Stelle, gleiche Ursache):** Review mit Marker `review-round`, Text:
 
 ```
 <!-- autopilot:review-round -->
@@ -147,6 +147,6 @@ Runde <r>: <k> Befunde
 
 Nur Befunde, die der Worker abarbeiten kann; Geschmack ist kein Befund. Dann `autopilot:review` nehmen, `autopilot:changes` setzen.
 
-**c) needs-human** (Leitplanke, letzte Runde mit Befunden, oder Stufe `begleitet`): Kommentar `<!-- autopilot:needs-human -->` am PR mit Grund oder Urteil und, wenn nötig, genau einer Frage. `needs-human` an PR und Issue setzen, `autopilot:review` und `autopilot:changes` am PR nehmen, `autopilot:wip` am Issue nehmen.
+**c) needs-human** (Leitplanke, Befunde in Runde `deckel.review_runden`, ein Befund der Vorrunde ist nicht behoben, oder Stufe `begleitet`): Kommentar `<!-- autopilot:needs-human -->` am PR mit Grund oder Urteil und, wenn nötig, genau einer Frage. `needs-human` an PR und Issue setzen, `autopilot:review` und `autopilot:changes` am PR nehmen, `autopilot:wip` am Issue nehmen.
 
 Ende. Letzte Ausgabe: eine Zeile mit PR, Runde und Urteil.
