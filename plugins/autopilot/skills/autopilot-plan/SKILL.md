@@ -1,6 +1,6 @@
 ---
 name: autopilot-plan
-description: Planer-Lauf des Autopilots (Routine auf Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, schreibt bis zu N neue Aufträge als spezifizierte Issues, führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
+description: Planer-Lauf des Autopilots (Routine auf Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, leitet Aufträge aus Issues, einem Doku-Umlauf und Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
 ---
 
 # autopilot-plan
@@ -10,8 +10,9 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
 ## 0. Konfiguration lesen, sonst Ende
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, gib eine Zeile aus („keine .claude/autopilot.md, Ende“) und beende den Lauf ohne jeden Schreibzugriff.
-2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `deckel.*`, `sprache`. Aus dem Text: Sperrliste, Klassen, Planer-Quellen, Ausschluss-Labels, Doku- und Testpflicht.
-3. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter: `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
+2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit ihren Umlauf-Listen, Ausschluss-Labels, Doku- und Testpflicht.
+3. Zweit-Repos finden, nur lesen: Die Cloud klont jedes Repo aus den `sources` der Routine neben das eigene (`/home/user/<name>`, also `../<name>` vom Repo-Wurzelverzeichnis), und der GitHub-Proxy erlaubt `gh api repos/<owner>/<name>/…` nur für diese Repos. Fehlt `../<name>`, versuche `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zweit/<name>`. Scheitert auch das, steht das Repo nicht in den `sources`: im Journal unter „Braucht dich“ melden („Zweit-Repo <owner>/<name> nicht lesbar, in der Planer-Routine unter sources eintragen“) und ohne diese Quelle weiterplanen. In ein Zweit-Repo schreibst du nie, auch keine Issues; Aufträge landen immer in `$REPO`.
+4. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter: `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
 
@@ -29,7 +30,7 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
 
 `gh pr …` und `gh issue …` laufen über GraphQL und antworten im Cloud-Lauf 403. Jeder Zugriff geht über `gh api` mit REST-Pfaden. Labelnamen mit Doppelpunkt im Pfad URL-kodieren (`autopilot%3Aready`). Texte immer über eine Datei übergeben (`-F body=@/tmp/x.md`), nie inline mit Shell-Quoting.
 
-Kein `--paginate`: es folgt den `Link`-Headern auf `repositories/<id>/…`, und der Proxy erlaubt nur Pfade unter `repos/<owner>/<repo>/`, also 403. Listen holst du Seite für Seite mit dieser Funktion; sie hört bei der ersten Seite unter 100 Einträgen auf und gibt ein JSON-Array zurück:
+Kein `--paginate`: es folgt den `Link`-Headern auf `repositories/<id>/…`, und der Proxy erlaubt nur Pfade unter `repos/<owner>/<repo>/` der Repos aus den `sources` der Routine, also 403. Listen holst du Seite für Seite mit dieser Funktion; sie hört bei der ersten Seite unter 100 Einträgen auf und gibt ein JSON-Array zurück:
 
 ```
 seiten() {
@@ -78,31 +79,45 @@ Sammle, ohne etwas zu schreiben:
 - **needs-human:** offene Issues und PRs mit `needs-human`. Hat eines einen Kommentar ohne Marker, der jünger ist als der letzte Marker-Kommentar, liegt eine Antwort vor.
 - **Gemergt:** geschlossene PRs mit Head `claude/autopilot-*` und `merged_at` in den letzten 7 Tagen.
 - **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`.
-- **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue` (letzter Bereich im Umlauf, bewertete und nicht übernommene Issues mit Grund).
+- **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue` (Zeiger der Umläufe: letzter Bereich, letztes Dokument, letztes Zweit-Repo-Dokument; bewertete und nicht übernommene Issues und Doku-Treffer mit Grund). Fehlt ein Zeiger, beginnt sein Umlauf vorn.
 
 ## 2. Hygiene
 
 - Ein Issue mit `autopilot:wip`, dessen letzter `work-start`-Kommentar älter ist als `deckel.wip_timeout_stunden` und zu dem kein offener PR mit Head `claude/autopilot-<n>` existiert: Kommentar mit Marker `needs-human` („Worker-Lauf seit <Zeit> ohne Ergebnis“), `autopilot:wip` nehmen, `needs-human` setzen.
 - Sonst änderst du keine Labels an Arbeit, die schon läuft. Antworten an `needs-human`-Fällen setzt der Mensch selbst per Label um; du nennst sie nur im Journal.
 
-## 3. Ende ohne neue Aufträge, wenn
+## 3. Platz für neue Aufträge
 
-- der WIP-Deckel voll ist, oder
-- schon `deckel.offene_vorschlaege` Issues mit `autopilot:proposed` unbeantwortet warten und es nur Klasse-B-Kandidaten gäbe, oder
-- keine Quelle einen Kandidaten liefert.
+- **Klasse A** (`autopilot:ready`): nur, solange WIP plus wartende `autopilot:ready` unter dem WIP-Deckel liegen.
+- **Klasse B** (`autopilot:proposed`): bis `deckel.offene_vorschlaege` minus der schon offenen Vorschläge. Ein voller WIP-Deckel sperrt Vorschläge nicht, sie belegen keinen Worker.
+- Beides zusammen höchstens `deckel.neue_auftraege_pro_planerlauf` je Lauf.
 
-Dann direkt zu Schritt 6 (Journal).
+Ist für beide Klassen kein Platz, keine Kandidatensuche: direkt zu Schritt 6 (Journal). Die Umlauf-Zeiger bleiben dann stehen.
 
 ## 4. Kandidaten suchen
 
-Höchstens `deckel.neue_auftraege_pro_planerlauf` neue Aufträge je Lauf, gezählt über alle Quellen. Die Quellen und ihre Reihenfolge stehen in `.claude/autopilot.md` unter „Planer-Quellen“. Für jede gilt:
+Die Quellen und ihre Reihenfolge stehen in `.claude/autopilot.md` unter „Planer-Quellen“. Arbeite alle Quellen ab, auch wenn die erste schon Kandidaten liefert, und wähle danach aus (Schritt 5). Für jede gilt:
 
 - Übergehe Issues mit einem `autopilot:*`-Label, mit einem Ausschluss-Label, mit einem offenen PR auf `claude/autopilot-<n>`, und Issues aus der Liste „bewertet, nicht übernommen“, sofern sie seither nicht geändert wurden (`updated_at`).
 - Vor jedem neuen Issue eine Dublettensuche über offene und geschlossene Issues. `search/issues` liefert im Cloud-Lauf 403: die Titelliste einmal je Lauf nach `/tmp/titel.txt` holen (Tabelle oben) und mit `grep -i -E '<Stichwort>|<Synonym>' /tmp/titel.txt` durchsuchen. Gibt es das Thema schon, kein neues Issue.
 - Beim Bereichs-Review im Umlauf genau einen Bereich je Lauf ansehen, den nächsten nach „letzter Bereich“, und höchstens 2 Befunde daraus aufnehmen.
 - Lies den Code, bevor du einen Befund behauptest. Ein Auftrag ohne geprüften Befund ist schlechter als keiner.
 
-## 5. Klassifizieren und spezifizieren
+### Umläufe (Doku und Zweit-Repos)
+
+Eine Quelle mit Umlauf-Liste (Doku-Umlauf, Zweit-Repo-Umlauf) liest je Lauf genau ein Dokument:
+
+1. **Liste bilden**, jedes Mal neu und gleich: die Einträge in der Reihenfolge der Konfiguration; ein Glob alphabetisch mit `README.md` zuerst (`ls <glob> | sort`); ein Verweis auf eine Index-Tabelle in der Reihenfolge ihrer Zeilen, jede verlinkte Datei einzeln. Pfade unter `archive/`, `archiv/` und Dateien, die nicht mehr existieren, fallen heraus.
+2. **Zeiger:** im Planer-Gedächtnis steht je Umlauf das zuletzt gelesene Dokument. Nimm das nächste der Liste; nach dem letzten oder ohne Zeiger das erste; steht der Zeiger nicht mehr in der Liste, das erste, das alphabetisch danach kommt. Der Zeiger rückt in jedem Lauf mit Kandidatensuche vor, auch ohne Befund.
+3. **Lesen:** nennt die Konfiguration einen Abschnitt (`§ …`), nur diesen. Sonst das ganze Dokument, bei über 60 KB zuerst die Überschriften (`grep -n '^#'`) und dann die Abschnitte mit Treffern.
+4. **Treffer:** `- [ ]`, Überschriften oder Absätze mit „Offen“, „Offene Fragen“, „Nächste Schritte“, „Folge“, „Später“, „Ideen“, „Entwurf“, „geplant“, „noch nicht“, `TODO`; in ADRs die Abschnitte zu Konsequenzen und Folgepunkten; in Status-Dateien Zeilen zu `$REPO`. In einem Zweit-Repo nur, was `$REPO` betrifft (Repo-Name, seine Pfade, seine Routen).
+5. **Am Code prüfen**, je Treffer: `grep` nach den genannten Routen, Funktionen, Feldern, Env-Vars, Dateien in `$REPO`, und `git log --oneline -i --grep=<Stichwort> | head` für eine schon gemergte Umsetzung. Dann einordnen:
+   - umgesetzt, aber die Doku sagt es nicht: Klasse A, Doku-Drift (Doku nachziehen, Haken setzen);
+   - nicht umgesetzt, ohne offene Entscheidung, außerhalb der Sperrliste: Kandidat, meist Klasse B;
+   - wartet auf eine Entscheidung, berührt die Sperrliste, braucht Hardware, prod oder ein anderes Repo: kein Auftrag, Eintrag in „bewertet, nicht übernommen“ mit Datei, Abschnitt und Grund, damit ein späterer Umlauf ihn nicht erneut prüft.
+6. Höchstens 2 Kandidaten je Dokument.
+
+## 5. Klassifizieren, auswählen und spezifizieren
 
 **Klasse** nach `.claude/autopilot.md`:
 
@@ -112,17 +127,21 @@ Höchstens `deckel.neue_auftraege_pro_planerlauf` neue Aufträge je Lauf, gezäh
 
 **Größe:** S (eine Stelle, unter 100 Zeilen), M (unter 400 Zeilen Diff), L (mehr). L wird vorher in mehrere S/M-Aufträge geteilt; jeder Teil zählt gegen den Deckel.
 
+**Auswahl** im Platz aus Schritt 3: Bugs mit Repro zuerst, dann Kandidaten aus Issues, dann aus den Umläufen. Gibt es einen Klasse-B-Kandidaten und Platz für Klasse B, bekommt er mindestens einen der Plätze, auch wenn Klasse-A-Kandidaten alle füllen könnten. Einen umsetzbaren Klasse-B-Kandidaten hältst du nicht aus Vorsicht zurück: der Vorschlag kostet nichts, der Mensch entscheidet per Label. Übrige Kandidaten kommen mit „Platz“ als Grund in „bewertet, nicht übernommen“, damit der nächste Lauf sie aufgreift.
+
 **Spec-Gerüst** (Issue-Text bei neuen Issues, Kommentar bei bestehenden, beide mit Marker `<!-- autopilot:spec -->` in der ersten Zeile):
 
 ```
 <!-- autopilot:spec -->
 **Ziel:** ein Satz, was danach anders ist.
-**Kontext:** Dateien mit Pfad, relevante Doku-Abschnitte.
+**Quelle:** Issue, Doku-Datei mit Abschnitt, oder `<owner>/<repo>:<pfad>` mit Abschnitt.
+**Kontext:** Dateien mit Pfad, relevante Doku-Abschnitte, der geprüfte Code-Stand (was es schon gibt, was fehlt).
 **Akzeptanzkriterien:**
 - [ ] prüfbar
 **Nicht-Ziele:** was ausdrücklich draußen bleibt.
 **Tests und Doku:** welche Testdatei, welches Dokument im selben PR.
 **Klasse und Größe:** A|B, S|M
+**Zur Freigabe:** nur Klasse B, ein bis drei Sätze: Nutzen, offene Detailfrage, die der Mensch beim Freigeben beantworten kann.
 ```
 
 Ein Worker, der dieses Repo nicht kennt, muss allein damit fertig werden. Jede Review-Runde kostet zwei Läufe, die Spec ist der größte Hebel.
@@ -162,9 +181,13 @@ Worker-Läufe x von <deckel.worker_laeufe_pro_tag>, Planer-Läufe y, WIP x von <
 
 ### Planer-Gedächtnis
 Letzter Bereich: <Zeile der Landkarte>
-Bewertet, nicht übernommen: #n (Grund), …
+Letztes Dokument: <Pfad>
+Letztes Zweit-Repo-Dokument: <owner>/<repo>:<Pfad> (eine Zeile je Zweit-Repo)
+Bewertet, nicht übernommen: #n (Grund), <Pfad> § <Abschnitt> (Grund), …
 ```
 
-**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, neue Aufträge mit Nummer und Klasse, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
+„Bewertet, nicht übernommen“ führt höchstens 40 Einträge; ältere fallen vorne heraus.
+
+**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, neue Aufträge mit Nummer und Klasse, gelesene Umlauf-Dokumente, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
 
 Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.
