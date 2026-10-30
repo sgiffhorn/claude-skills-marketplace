@@ -31,7 +31,12 @@ deckel:
   inventur_tage: 30
   review_runden: 2
   gate_fehlschlaege: 2
+  # Einfügungen plus Löschungen ohne Testdateien
   diff_zeilen: 400
+  # Worker und Planer bremsen ab dieser Auslastung des 5h-Fensters (Prozent),
+  # und wenn der Wochenverbrauch mehr als budget_woche_vorlauf Prozentpunkte vor dem Wochenfortschritt liegt
+  budget_5h: 70
+  budget_woche_vorlauf: 10
   wip_timeout_stunden: 6
 ---
 

@@ -12,7 +12,7 @@ Du bist der Worker. Du setzt genau einen Auftrag um, so wie seine Spec ihn besch
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
 2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `deckel.*`, Sperrliste, Doku- und Testpflicht, UI-Beleg.
 3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben („Worker in Stufe trockenlauf aus“), Ende.
-4. Zeit in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC: `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
+4. Zeit in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
 
@@ -79,7 +79,22 @@ Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, 
 
 Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 
-**Deckel prüfen**, bevor du etwas schreibst:
+**Budget prüfen**, bevor du etwas schreibst. Cloud-Läufe zehren vom selben Plan-Kontingent wie der Mensch. Die Auslastung liefert ein Mini-Lauf auf Haiku; `BUDGET_5H` ist `deckel.budget_5h`, `BUDGET_VORLAUF` ist `deckel.budget_woche_vorlauf`:
+
+```
+budget=$(timeout 120 claude -p ok --model haiku --max-turns 1 --output-format stream-json --verbose 2>/dev/null \
+  | jq -c 'select(.type == "rate_limit_event") | .rate_limit_info.unifiedWindows' | head -1)
+jq -r --argjson max "${BUDGET_5H:-70}" --argjson vor "${BUDGET_VORLAUF:-10}" '
+  (.five_hour.utilization * 100) as $h | (.seven_day.utilization * 100) as $w
+  | (100 - (.seven_day.resetsAt - now) / 6048) as $soll
+  | if $h >= $max then "bremse: 5h \($h | floor) %"
+    elif $w > $soll + $vor then "bremse: Woche \($w | floor) %, Soll \($soll | floor) %"
+    else "gas: 5h \($h | floor) %, Woche \($w | floor) %, Soll \($soll | floor) %" end' <<<"$budget"
+```
+
+`bremse`: die Zeile ausgeben, Ende ohne Schreibzugriff; der nächste Lauf nach Zeitplan oder Label nimmt den Auftrag. Liefert der Mini-Lauf kein `rate_limit_event`, gilt `gas` mit dem Vermerk „Budget unbekannt“.
+
+**Deckel prüfen**:
 
 - Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip`; das Label bleibt bis zum Merge am Issue) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
 
@@ -108,7 +123,7 @@ Abbruch nach Schritt 7 (needs-human), wenn:
 
 ## 4. Umsetzen
 
-- Neuer Auftrag: `git fetch origin && git switch -c claude/autopilot-N origin/$DEFAULT`.
+- Neuer Auftrag: `git fetch origin && git switch -c claude/autopilot-N origin/$DEFAULT`. Gibt es `origin/claude/autopilot-N` schon (ein früherer Lauf brach mit needs-human ab), arbeite darauf weiter: `git switch claude/autopilot-N`.
 - Nacharbeit: `git fetch origin && git switch claude/autopilot-N && git pull --ff-only`. Lies den jüngsten Review mit Marker `autopilot:review-round` und die Zeilenkommentare dazu. Arbeite genau diese Punkte ab, nichts anderes.
 - Ändere nur, was die Spec verlangt. Tests und Doku nach den Regeln des Repos (`CLAUDE.md`, „Doku- und Testpflicht“ in `.claude/autopilot.md`) gehören in denselben PR.
 - Nebenbei Gefundenes kommt als kurzer Kommentar ins Issue, nicht in den Diff.
@@ -118,7 +133,13 @@ Abbruch nach Schritt 7 (needs-human), wenn:
 
 1. Gate aus `.claude/autopilot.md` (`gate`) laufen lassen, Ausgabe in eine Datei, nur die Fehlerzeilen lesen.
 2. Rot: beheben, Gate ein zweites Mal. Wieder rot: Kommentar `<!-- autopilot:gate-fail -->` mit den Fehlerzeilen (gekürzt), dann Schritt 7. Zähle auch `gate-fail`-Kommentare früherer Läufe an diesem Issue: zusammen `deckel.gate_fehlschlaege` erreicht heißt Schritt 7.
-3. Diffgröße: `git diff --shortstat origin/$DEFAULT...HEAD`. Über `deckel.diff_zeilen` (Einfügungen plus Löschungen): kein PR, Schritt 7 mit einem Vorschlag, wie man teilt.
+3. Diffgröße ohne Testdateien (Pfade unter `test/`, `tests/`, `__tests__/`, `__snapshots__/`, `e2e/` und Dateien `*.test.*`, `*.spec.*`):
+
+   ```
+   git diff --numstat origin/$DEFAULT...HEAD | awk -F'\t' '$3 !~ /(^|\/)(tests?|__tests__|__snapshots__|e2e)\/|\.(test|spec)\.[A-Za-z0-9]+$/ {s+=$1+$2} END {print s+0}'
+   ```
+
+   Über `deckel.diff_zeilen`: kein PR, Schritt 7 mit einem Vorschlag, wie man teilt. Der Befund nennt, wie der Mensch fortsetzt: `autopilot:gross-ok` und `autopilot:ready` am Issue setzen heißt ein PR trotz Größe. Trägt das Issue `autopilot:gross-ok`, entfällt diese Prüfung.
 4. Sperrliste gegen `git diff --name-only origin/$DEFAULT...HEAD`: ein Treffer heißt Schritt 7.
 5. UI-Beleg nach „UI-Beleg“ in `.claude/autopilot.md`, wenn die Änderung sichtbar ist.
 

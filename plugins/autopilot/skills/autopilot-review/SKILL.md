@@ -95,7 +95,7 @@ Runde: Zahl der Reviews am PR mit Marker `review-round` plus 1.
 Jeder Treffer führt direkt zu Schritt 5c (needs-human), mit dem Treffer als Grund:
 
 - Eine Datei aus `pulls/$P/files` liegt auf der Sperrliste.
-- `additions + deletions` über `deckel.diff_zeilen`.
+- Einfügungen plus Löschungen aus `pulls/$P/files` ohne Testdateien (Dateiname passt auf `(^|/)(tests?|__tests__|__snapshots__|e2e)/|\.(test|spec)\.[A-Za-z0-9]+$`) über `deckel.diff_zeilen`, außer Issue `#N` trägt `autopilot:gross-ok` (das setzt nur der Mensch).
 - `mergeable` ist `false` (bei `null` bis zu dreimal mit 10 s Abstand neu lesen).
 - Ein offener PR hat `claude/autopilot-N` als Basis (Stack, Squash würde ihn zerstören).
 - Klasse laut Spec ist C, oder die Spec fehlt.

@@ -91,6 +91,19 @@ Sammle, ohne etwas zu schreiben:
            and ($c.created_at | fromdate) - (.created_at | fromdate) <= 900) | not)]
     | length'
   ```
+- **Budget:** Auslastung des Plan-Kontingents wie im Worker (`BUDGET_5H` ist `deckel.budget_5h`, `BUDGET_VORLAUF` ist `deckel.budget_woche_vorlauf`). Bei `bremse` entfallen die Schritte 2b, 4 und 5: Hygiene und Journal laufen, sonst nichts. Ohne `rate_limit_event` gilt `gas`.
+
+  ```
+  budget=$(timeout 120 claude -p ok --model haiku --max-turns 1 --output-format stream-json --verbose 2>/dev/null \
+    | jq -c 'select(.type == "rate_limit_event") | .rate_limit_info.unifiedWindows' | head -1)
+  jq -r --argjson max "${BUDGET_5H:-70}" --argjson vor "${BUDGET_VORLAUF:-10}" '
+    (.five_hour.utilization * 100) as $h | (.seven_day.utilization * 100) as $w
+    | (100 - (.seven_day.resetsAt - now) / 6048) as $soll
+    | if $h >= $max then "bremse: 5h \($h | floor) %"
+      elif $w > $soll + $vor then "bremse: Woche \($w | floor) %, Soll \($soll | floor) %"
+      else "gas: 5h \($h | floor) %, Woche \($w | floor) %, Soll \($soll | floor) %" end' <<<"$budget"
+  ```
+
 - **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue`: Sweep-Stand je Repo, Datum der letzten Inventur, letzter Bereich, Vorrat (geprüfte Kandidaten ohne Platz) und „bewertet, nicht übernommen“ mit Grund.
 
 ## 2. Hygiene
@@ -153,7 +166,7 @@ Geprüfte Kandidaten, die in diesem Lauf keinen Platz bekommen, kommen in den Vo
 - **A:** passt in eine Klasse-A-Kategorie und berührt die Sperrliste nicht.
 - **B:** alles andere, was umsetzbar ist.
 
-**Größe:** S (eine Stelle, unter 100 Zeilen), M (unter 400 Zeilen Diff), L (mehr). L wird vorher in mehrere S/M-Aufträge geteilt; jeder Teil zählt gegen den Deckel.
+**Größe:** S (eine Stelle, unter 100 Zeilen), M (unter `deckel.diff_zeilen` Diff ohne Testdateien), L (mehr). L wird vorher in mehrere S/M-Aufträge geteilt; jeder Teil zählt gegen den Deckel. Ein Auftrag hat genau ein Ziel: zwei Teile, die einzeln nutzbar sind (etwa Oberfläche und Verwaltung), sind zwei Aufträge. Schätze nach Dateien und Schichten, nicht nach dem Gefühl; im Zweifel L.
 
 **Auswahl** im Platz aus Schritt 3: Bugs mit Repro zuerst, dann Kandidaten aus Issues, dann der Vorrat, dann neue aus dem Sweep. Gibt es einen Klasse-B-Kandidaten und Platz für Klasse B, bekommt er mindestens einen der Plätze, auch wenn Klasse-A-Kandidaten alle füllen könnten. Einen umsetzbaren Klasse-B-Kandidaten hältst du nicht aus Vorsicht zurück: der Vorschlag kostet nichts, der Mensch entscheidet per Label. Was keinen Platz bekommt, geht in den Vorrat, nicht in „bewertet, nicht übernommen“.
 
@@ -205,7 +218,7 @@ Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>
 - #pr Titel
 
 ### Heute
-Worker-Läufe x, Planer-Läufe y, WIP x von <deckel>
+Worker-Läufe x, Planer-Läufe y, WIP x von <deckel>, Budget: 5h x %, Woche y % (Soll z %)
 
 ### Planer-Gedächtnis
 Sweep-Stand: <repo> <sha> <Datum>; <zweit-repo> <sha> <Datum>
