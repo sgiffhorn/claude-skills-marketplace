@@ -1,6 +1,6 @@
 ---
 name: autopilot-work
-description: Worker-Lauf des Autopilots (Routine auf Issue-Label autopilot:ready, PR-Label autopilot:changes oder Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, übernimmt genau einen Auftrag, setzt ihn auf Branch claude/autopilot-<issue> um, fährt das Gate und öffnet den PR per gh api. Endet sofort, wenn nichts ansteht.
+description: Worker-Lauf des Autopilots (Routine auf Issue-Label autopilot:ready, PR-Label autopilot:changes oder Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, übernimmt genau einen Auftrag, setzt ihn auf Branch claude/autopilot-<issue> um, fährt das Gate und öffnet den PR per gh api. Endet sofort, wenn nichts ansteht; bei leerer Warteschlange fordert er vorher per Label autopilot:nachschub einen Planer-Lauf an.
 ---
 
 # autopilot-work
@@ -10,7 +10,7 @@ Du bist der Worker. Du setzt genau einen Auftrag um, so wie seine Spec ihn besch
 ## 0. Konfiguration lesen, sonst Ende
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
-2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `deckel.*`, Sperrliste, Doku- und Testpflicht, UI-Beleg.
+2. Merke dir `repo` (als `$REPO`), `default_branch`, `journal_issue` (als `$J`), `stufe`, `gate`, `deckel.*`, Sperrliste, Doku- und Testpflicht, UI-Beleg.
 3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben („Worker in Stufe trockenlauf aus“), Ende.
 4. Zeit in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`.
 
@@ -57,6 +57,7 @@ seiten() {
 | Kommentar | `gh api repos/$REPO/issues/$N/comments -F body=@datei` |
 | Label setzen | `gh api repos/$REPO/issues/$N/labels -f 'labels[]=autopilot:wip'` |
 | Label nehmen | `gh api -X DELETE repos/$REPO/issues/$N/labels/autopilot%3Aready` |
+| Label vorhanden? | `gh api repos/$REPO/labels/autopilot%3Anachschub` (404 heißt nein) |
 | PR öffnen | `gh api repos/$REPO/pulls -f title=… -f head=claude/autopilot-$N -f base=$DEFAULT -F body=@datei` |
 
 PRs sind für Labels und Kommentare auch Issues: dieselben `issues/$P/…`-Pfade.
@@ -77,9 +78,9 @@ Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, 
 1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
 
-Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
+Nichts gefunden: weiter mit „Nachschub“ unten.
 
-**Budget prüfen**, bevor du etwas schreibst. Cloud-Läufe zehren vom selben Plan-Kontingent wie der Mensch. Die Auslastung liefert ein Mini-Lauf auf Haiku; `BUDGET_5H` ist `deckel.budget_5h`, `BUDGET_VORLAUF` ist `deckel.budget_woche_vorlauf`:
+**Budget prüfen**, bevor du etwas schreibst (bei „Nichts gefunden“ vorgezogen, siehe „Nachschub“). Cloud-Läufe zehren vom selben Plan-Kontingent wie der Mensch. Die Auslastung liefert ein Mini-Lauf auf Haiku; `BUDGET_5H` ist `deckel.budget_5h`, `BUDGET_VORLAUF` ist `deckel.budget_woche_vorlauf`:
 
 ```
 budget=$(timeout 120 claude -p ok --model haiku --max-turns 1 --output-format stream-json --verbose 2>/dev/null \
@@ -97,6 +98,25 @@ jq -r --argjson max "${BUDGET_5H:-70}" --argjson vor "${BUDGET_VORLAUF:-10}" '
 **Deckel prüfen**:
 
 - Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip`; das Label bleibt bis zum Merge am Issue) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
+
+**Nachschub**, nur wenn nichts gefunden wurde. Ist die Warteschlange leer, weckt der Worker den Planer außer der Reihe: er setzt genau ein Label, `autopilot:nachschub` am Journal-Issue `journal_issue`, ein Webhook-Auslöser startet damit den Planer. Sonst schreibt er nichts. Alle Bedingungen müssen gelten, die erste, die scheitert, beendet den Lauf mit einer Zeile:
+
+1. `journal_issue` ist gesetzt und nicht 0.
+2. Kein offenes Issue mit `autopilot:ready`, egal ob es gerade belegt ist.
+3. WIP liegt unter dem Deckel (wie oben).
+4. Budget auf `gas` (Prüfung von oben, hier vorgezogen; „Budget unbekannt“ zählt als `gas`).
+5. Das Journal-Issue trägt `autopilot:nachschub` noch nicht (`gh api repos/$REPO/issues/$J/labels`).
+6. Der Deckel `deckel.nachschub_pro_tag` (Vorgabe 3) ist nicht erreicht. Gezählt werden die Laufzeilen des Planers von heute mit dem Vermerk „Nachschub“:
+
+   ```
+   TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
+   seiten repos/$REPO/issues/$J/comments -f since=$TAG | jq --arg tag "$TAG" '[.[]
+     | select(.created_at >= $tag and (.body | startswith("<!-- autopilot:journal -->")) and (.body | test("Nachschub")))] | length'
+   ```
+
+7. Das Label existiert im Repo: `gh api repos/$REPO/labels/autopilot%3Anachschub`. Bei 404 nicht anlegen (das Setzen eines unbekannten Labels legt es stillschweigend an), sondern „Label autopilot:nachschub fehlt, autopilot-setup ausführen“ ausgeben, Ende.
+
+Dann `gh api repos/$REPO/issues/$J/labels -f 'labels[]=autopilot:nachschub'`. Ende. Letzte Ausgabe: „Warteschlange leer, Nachschub angefordert (x von <deckel> heute)“.
 
 ## 2. Übernehmen
 

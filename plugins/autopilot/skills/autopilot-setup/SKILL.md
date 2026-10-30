@@ -37,6 +37,7 @@ Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und h
 | `autopilot:changes` | `d93f0b` | Autopilot: Nacharbeit aus dem Review |
 | `needs-human` | `b60205` | Automatik stoppt, Mensch entscheidet |
 | `autopilot:gross-ok` | `fbca04` | Mensch erlaubt einen PR über dem Diffdeckel |
+| `autopilot:nachschub` | `5319e7` | Autopilot: Warteschlange leer, startet den Planer außer der Reihe |
 
 ```
 gh api repos/<repo>/labels -f name='autopilot:ready' -f color=0e8a16 -f description='…'
@@ -84,4 +85,5 @@ Für die Routines gilt:
 - **Laden:** Die Cloud installiert kein Plugin aus `.claude/settings.json` (`extraKnownMarketplaces`, `enabledPlugins`), und die Routine-Felder `enabled_plugins` und `extra_marketplaces` übernimmt die API nicht. Der Routine-Prompt klont deshalb `sgiffhorn/claude-skills-marketplace` nach `/tmp/autopilot-skills` und befolgt `plugins/autopilot/skills/autopilot-<rolle>/SKILL.md`. Änderungen an den Skills wirken so ab dem nächsten Lauf.
 - **Zweit-Repos:** Jedes Repo aus `zweit_repos` gehört zusätzlich in die `sources` der Planer-Routine (`session_context.sources`, je ein `git_repository`). Nur dann klont die Cloud es nach `/home/user/<name>` und der GitHub-Proxy lässt `gh api repos/<owner>/<name>/…` durch; ein Repo außerhalb der `sources` antwortet 403 („GitHub access to this repository is not enabled for this session“, gemessen 2026-10-30). Mit mehr als einer Quelle startet die Session in `/home/user` statt im Repo, und dessen `.claude/settings.json` (Hooks, `attribution`) greift dann nicht von selbst: der Planer-Prompt nennt `/home/user/<name>` als Arbeitsverzeichnis.
 - **Connectors:** Die API hängt beim `create` alle claude.ai-Connectors des Accounts an. Danach die Routine mit `clear_mcp_connections: true` aktualisieren; keine Rolle braucht einen.
-- **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs).
+- **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs; Planer: `autopilot:nachschub` an Issues).
+- **Nachschub:** Die Planer-Routine bekommt neben dem Zeitplan einen GitHub-Auslöser „Issue beschriftet“, gefiltert auf `autopilot:nachschub`. Per API: `create_webhook_trigger` mit `hook_type: app`, `scope_id: <owner>/<repo>`, `events: ["issues.labeled"]` und der ID der Planer-Routine, danach den Filter im Web-Dialog. Ohne Filter weckt jedes Issue-Label den Planer; er endet dann zwar ohne Schreibzugriff, kostet aber je einen Lauf. Wie oft am Tag, regelt `deckel.nachschub_pro_tag`.

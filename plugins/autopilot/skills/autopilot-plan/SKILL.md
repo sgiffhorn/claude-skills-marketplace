@@ -1,6 +1,6 @@
 ---
 name: autopilot-plan
-description: Planer-Lauf des Autopilots (Routine auf Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, leitet Aufträge aus Issues und einem Sweep über die Doku des Repos und seiner Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
+description: Planer-Lauf des Autopilots (Routine auf Zeitplan, außer der Reihe über das Label autopilot:nachschub am Journal-Issue). Liest .claude/autopilot.md, prüft den Label-Zustand, leitet Aufträge aus Issues und einem Sweep über die Doku des Repos und seiner Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
 ---
 
 # autopilot-plan
@@ -12,7 +12,17 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, gib eine Zeile aus („keine .claude/autopilot.md, Ende“) und beende den Lauf ohne jeden Schreibzugriff.
 2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit dem Umfang des Doku-Sweeps, Ausschluss-Labels, Doku- und Testpflicht.
 3. Zweit-Repos finden, nur lesen: Die Cloud klont jedes Repo aus den `sources` der Routine neben das eigene (`/home/user/<name>`, also `../<name>` vom Repo-Wurzelverzeichnis), und der GitHub-Proxy erlaubt `gh api repos/<owner>/<name>/…` nur für diese Repos. Fehlt `../<name>`, versuche `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zweit/<name>`. Scheitert auch das, steht das Repo nicht in den `sources`: im Journal unter „Braucht dich“ melden („Zweit-Repo <owner>/<name> nicht lesbar, in der Planer-Routine unter sources eintragen“) und ohne diese Quelle weiterplanen. In ein Zweit-Repo schreibst du nie, auch keine Issues; Aufträge landen immer in `$REPO`.
-4. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter: `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
+4. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter (als `$TAG`): `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
+5. **Nachschub:** Trägt das Journal-Issue `autopilot:nachschub` (`gh api repos/$REPO/issues/$J/labels`, `$J` ist `journal_issue`), nimm es sofort ab (`gh api -X DELETE repos/$REPO/issues/$J/labels/autopilot%3Anachschub`) und merke dir den Lauf als Nachschub-Lauf. Antwortet das DELETE mit 404, hat ein anderer Lauf es genommen: weiter wie ohne Label. Der Worker setzt das Label, wenn er keine Arbeit findet; ein Webhook-Auslöser startet damit diesen Lauf.
+   - Hat ein GitHub-Ereignis den Lauf geweckt und ist er kein Nachschub-Lauf, Ende ohne Schreibzugriff (ein Ereignis ohne Label-Filter oder ein zweiter Weckruf für dasselbe Label).
+   - Nachschub-Deckel: Laufzeilen des Planers von heute mit dem Vermerk „Nachschub“ zählen. Erreicht ihre Zahl `deckel.nachschub_pro_tag` (Vorgabe 3), schreibst du nur die Journalzeile („<Zeit> Nachschub: Deckel x von x erreicht, Ende“) und endest.
+
+     ```
+     seiten repos/$REPO/issues/$J/comments -f since=$TAG | jq --arg tag "$TAG" '[.[]
+       | select(.created_at >= $tag and (.body | startswith("<!-- autopilot:journal -->")) and (.body | test("Nachschub")))] | length'
+     ```
+
+   - Sonst läuft der Nachschub-Lauf wie jeder andere, mit denselben Regeln für Platz, Vorrat zuerst und Budget-Bremse.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
 
@@ -218,7 +228,7 @@ Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>
 - #pr Titel
 
 ### Heute
-Worker-Läufe x, Planer-Läufe y, WIP x von <deckel>, Budget: 5h x %, Woche y % (Soll z %)
+Worker-Läufe x, Planer-Läufe y (davon Nachschub z von <deckel>), WIP x von <deckel>, Budget: 5h x %, Woche y % (Soll z %)
 
 ### Planer-Gedächtnis
 Sweep-Stand: <repo> <sha> <Datum>; <zweit-repo> <sha> <Datum>
@@ -231,6 +241,6 @@ Bewertet, nicht übernommen: #n (Grund), <Pfad> § <Abschnitt> (Grund), …
 
 Der Vorrat führt höchstens 30 Einträge, „bewertet, nicht übernommen“ höchstens 150 (ältere fallen vorne heraus). Der ganze Text bleibt unter 60 000 Zeichen; sonst zuerst die ältesten Einträge von „bewertet, nicht übernommen“ kürzen.
 
-**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, beantwortete Fragen mit Nummer, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
+**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, beantwortete Fragen mit Nummer, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“ Ein Nachschub-Lauf trägt direkt nach der Zeit den Vermerk „Nachschub x von <deckel>“ (x zählt diesen Lauf mit), auch im Leerlauf; der Worker und der Deckel zählen genau diesen Vermerk.
 
 Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.

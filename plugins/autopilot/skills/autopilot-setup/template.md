@@ -39,6 +39,8 @@ deckel:
   budget_5h: 70
   budget_woche_vorlauf: 10
   wip_timeout_stunden: 6
+  # Planer-Läufe außer der Reihe, wenn der Worker keine Arbeit findet (Label autopilot:nachschub)
+  nachschub_pro_tag: 3
 ---
 
 # Autopilot: Konfiguration für OWNER/NAME
