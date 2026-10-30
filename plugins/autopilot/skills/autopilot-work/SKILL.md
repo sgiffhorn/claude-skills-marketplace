@@ -96,7 +96,7 @@ Nacharbeit an PR `#P` zu Issue `#N`: Kommentar `<!-- autopilot:work-start -->` a
 
 ## 3. Spec prüfen
 
-Die Spec ist der Issue-Text, wenn er mit `<!-- autopilot:spec -->` beginnt, sonst der jüngste Kommentar mit diesem Marker. Kommentare ohne Marker, die jünger sind, sind Antworten des Menschen und gelten zusätzlich.
+Die Spec ist der jüngste Kommentar mit `<!-- autopilot:spec -->`, sonst der Issue-Text, wenn er mit diesem Marker beginnt. Eine Spec im Kommentar ist eine Überarbeitung und ersetzt den Issue-Text. Kommentare ohne Marker, die jünger sind als die Spec, sind Ergänzungen des Menschen und gelten zusätzlich; bei einem Widerspruch zur Spec gilt die Ergänzung. Kommentare mit `<!-- autopilot:antwort -->` erklären die Spec, ändern sie aber nicht.
 
 Abbruch nach Schritt 7 (needs-human), wenn:
 

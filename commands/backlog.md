@@ -26,7 +26,7 @@ darf nur einmal abgefragt werden. Worktrees unter `.claude/worktrees/` zählen n
 **Je Repo lesen** (lokal geht `gh issue`/`gh pr`, anders als in der Cloud):
 
 ```bash
-gh issue list -R <repo> --state open --label autopilot:proposed --json number,title,body,createdAt,url
+gh issue list -R <repo> --state open --label autopilot:proposed --json number,title,body,createdAt,url,comments
 gh issue list -R <repo> --state open --label needs-human --json number,title,url,updatedAt
 gh pr list    -R <repo> --state open --label needs-human --json number,title,url,updatedAt
 ```
@@ -42,6 +42,9 @@ eine eigene Gruppe.
 - Vorschlag: `g<n> 🙋 #<nr> <Titel>: freigeben? (<Klasse>, <Größe>)` und, falls die Spec
   eine Zeile `**Zur Freigabe:**` hat, deren offene Frage als Halbsatz dahinter. Klasse und
   Größe stehen in der Spec-Zeile `**Klasse und Größe:**`.
+  Dahinter der Stand des Gesprächs aus dem jüngsten Kommentar: ohne Marker und mit
+  Frage (`?` oder `**Frage:**`) „Frage offen, Antwort im nächsten Planer-Lauf“; mit
+  `<!-- autopilot:antwort -->` „Frage beantwortet“; ohne Marker und ohne Frage „ergänzt“.
 - Frage: `g<n> 🙋 #<nr> <Titel>: Frage des Autopilots` mit dem ersten Satz aus dem
   jüngsten Kommentar mit `<!-- autopilot:needs-human -->`; ohne solchen Kommentar
   „needs-human ohne Frage“. PRs mit `PR #<nr>`.
@@ -240,6 +243,42 @@ Das Label startet den Worker des Repos sofort. Nur auf ausdrückliche Nummernwah
 Nutzers, nie gebündelt „alle“, und nie für `needs-human`-Zeilen: dort ist eine Antwort
 gefragt, kein Label. Danach je Nummer eine Zeile: freigegeben oder übersprungen.
 
+### `ergänzen g<n> <Text> [--frei]`
+Schreibt eine Ergänzung des Nutzers als Kommentar ins Issue, wörtlich, mit
+`**Ergänzung:**` davor und ohne Marker (sie ist Text des Menschen):
+
+```bash
+gh issue comment <nr> -R <repo> --body-file <datei>
+```
+
+Worker und Reviewer lesen jüngere Kommentare ohne Marker als Teil der Spec; bei einem
+Widerspruch gilt die Ergänzung. Mit `--frei` danach wie `freigeben`. Ohne `--frei` bleibt
+der Vorschlag liegen. Trägt das Issue schon `autopilot:wip`, darauf hinweisen: der Worker
+sieht die Ergänzung erst bei der Nacharbeit.
+
+### `fragen g<n> <Frage>`
+Beantwortet eine Frage des Nutzers zu einem Vorschlag **sofort in dieser Session**, statt
+auf den nächsten Planer-Lauf zu warten:
+
+1. Spec und alle Kommentare des Issues lesen (`gh issue view <nr> -R <repo> --comments`).
+2. Am Code beantworten, im lokalen Klon nach `git fetch`, gelesen vom Default-Branch des
+   Remotes (`git grep … origin/HEAD`, `git show origin/HEAD:<pfad>`), damit ein veralteter
+   Arbeitsbaum nicht täuscht. Antwort im Chat, kurz, mit Pfaden.
+3. Ändert die Antwort den Auftrag, die überarbeitete Spec im Chat zeigen (Gerüst aus
+   `autopilot-plan`, alle bisherigen Ergänzungen eingearbeitet).
+4. Dann **einmal gebündelt fragen**, ob ins Issue geschrieben wird. Erst nach dem Ja,
+   jeweils per Datei:
+   - die Frage des Nutzers wörtlich mit `**Frage:**` davor, ohne Marker;
+   - die Antwort mit `<!-- autopilot:antwort -->` in der ersten Zeile;
+   - falls nötig die Spec mit `<!-- autopilot:spec -->` in der ersten Zeile. Die jüngste
+     Spec ersetzt für Worker und Reviewer den Issue-Text.
+
+Folgefragen gehören in dieselbe Runde, bevor geschrieben wird. Hausregeln für alles, was
+ins Issue geht: kein Gedankenstrich, keine Personendaten, nur IDs.
+
+Wer die Frage stattdessen direkt auf GitHub stellt (etwa vom Handy), bekommt die Antwort
+vom Planer im nächsten Lauf; `/backlog` zeigt das Issue bis dahin als „Frage offen“.
+
 ### `ablehnen g<n> [Grund]`
 Schließt einen Vorschlag als nicht geplant, damit der Planer ihn nicht erneut vorschlägt
 (er prüft offene und geschlossene Titel auf Dubletten):
@@ -330,8 +369,9 @@ ausdrückliche Entscheidung des Operators und passiert hier nicht.
 
 ## Regeln
 
-- **Autopilot-Labels setzt `/backlog` nur über `freigeben` und `ablehnen`**, nie beim
-  Auflisten und nie aus eigenem Urteil. Antworten auf `needs-human` schreibt der Nutzer
+- **Autopilot-Labels und Kommentare setzt `/backlog` nur über `freigeben`, `ablehnen`,
+  `ergänzen` und `fragen`** (dort erst nach dem Ja), nie beim Auflisten und nie aus
+  eigenem Urteil. Antworten auf `needs-human` schreibt der Nutzer
   (oder auf seinen Zuruf eine Session); `/backlog` verlinkt nur.
 
 - **Nie eine Handoff-Datei löschen.** Erledigtes wandert nach `done/`; das ist der

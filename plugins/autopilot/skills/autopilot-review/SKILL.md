@@ -86,7 +86,7 @@ Kommentare ohne Marker stammen vom Menschen.
 
 Offene PRs mit Head `claude/autopilot-*`, Label `autopilot:review`, ohne `needs-human`. Der älteste zuerst, einer je Lauf. Keiner: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 
-`N` ist die Zahl aus dem Branchnamen, `P` die PR-Nummer. Lies Issue `#N` und die Spec: Issue-Text, wenn er mit `<!-- autopilot:spec -->` beginnt, sonst der jüngste Kommentar mit diesem Marker; jüngere Kommentare ohne Marker sind Antworten des Menschen und gelten zusätzlich.
+`N` ist die Zahl aus dem Branchnamen, `P` die PR-Nummer. Lies Issue `#N` und die Spec: der jüngste Kommentar mit `<!-- autopilot:spec -->`, sonst der Issue-Text, wenn er mit diesem Marker beginnt; jüngere Kommentare ohne Marker sind Ergänzungen des Menschen und gelten zusätzlich (bei Widerspruch gilt die Ergänzung), Kommentare mit `<!-- autopilot:antwort -->` erklären nur.
 
 Runde: Zahl der Reviews am PR mit Marker `review-round` plus 1.
 

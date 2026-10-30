@@ -35,7 +35,7 @@ Danach: `/backlog`, `/handoff`, `/finish`, `/land`, `/ship`, wie gewohnt, kein P
 
 ## Commands
 
-- **`backlog`**: listet offene Handoffs repo-übergreifend und kann daraus Chip-Sessions spawnen. In Repos mit Autopilot (`.claude/autopilot.md`) zeigt es auch die Vorschläge (`autopilot:proposed`) und Fragen (`needs-human`), die auf eine Entscheidung warten; `freigeben` und `ablehnen` setzen die Labels. Der Unterbefehl `worktrees` listet zusätzlich Git-Worktrees, die von abgeschlossenen Sessions übrig blieben, und kann die gefahrlosen davon entfernen.
+- **`backlog`**: listet offene Handoffs repo-übergreifend und kann daraus Chip-Sessions spawnen. In Repos mit Autopilot (`.claude/autopilot.md`) zeigt es auch die Vorschläge (`autopilot:proposed`) und Fragen (`needs-human`), die auf eine Entscheidung warten; `freigeben` und `ablehnen` setzen die Labels, `ergänzen` schreibt eine Ergänzung ins Issue, `fragen` beantwortet eine Rückfrage sofort am Code und schreibt Frage, Antwort und bei Bedarf eine überarbeitete Spec ins Issue. Der Unterbefehl `worktrees` listet zusätzlich Git-Worktrees, die von abgeschlossenen Sessions übrig blieben, und kann die gefahrlosen davon entfernen.
 - **`handoff`**: schreibt eine Handoff-Datei nach derselben Konvention, mit der die nächste Session schlank weiterarbeiten kann.
 - **`finish`**: schließt eine Session ab: prüft ehrlich gegen die Subtasks und DoD der Handoff-Datei, ob die Arbeit wirklich fertig ist, räumt die eigene Kladde auf und verschiebt die Datei erst dann nach `done/`. `backlog` schickt seine Chips am Ende hierher.
 - **`land`**: Commit, PR und Merge in einem Zug. Diese Version ist **repo-agnostisch**: sie erkennt Repo-Name, Default-Branch und Merge-Methode selbst über `gh repo view`, statt sie hart zu verdrahten.
