@@ -74,20 +74,26 @@ function kurz(text: string, max = 180): string {
 // ---------- Datenquellen ----------
 
 let ghPfad: string | undefined
+const STARTFEHLER = /ENOENT|failed to start/
 
-async function gh($: EngineInterface, args: string[]): Promise<string> {
-  const kandidaten = ghPfad ? [ghPfad] : GH
+export async function gh($: EngineInterface, args: string[]): Promise<string> {
+  const kandidaten = ghPfad ? [ghPfad, ...GH.filter(p => p !== ghPfad)] : GH
   let letzter = 'gh nicht gefunden'
   for (const pfad of kandidaten) {
-    try {
-      const r = await $.process.run([pfad, ...args], { timeoutMs: 60000 })
-      ghPfad = pfad
-      if (r.exitCode !== 0) throw new Error(kurz(r.stderr || `gh endete mit ${r.exitCode}`, 200))
-      return r.stdout
-    } catch (err) {
-      letzter = err instanceof Error ? err.message : String(err)
-      if (ghPfad) throw err
+    const r = await $.process
+      .run([pfad, ...args], { timeoutMs: 60000 })
+      .catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))))
+    if (r instanceof Error) {
+      letzter = r.message
+      // Ein gemerkter Pfad, der nur haengt, bleibt gemerkt; startet er nicht mehr
+      // (PATH der App geaendert), gilt wieder die ganze Liste
+      if (pfad === ghPfad && !STARTFEHLER.test(letzter)) throw r
+      if (pfad === ghPfad) ghPfad = undefined
+      continue
     }
+    ghPfad = pfad
+    if (r.exitCode !== 0) throw new Error(kurz(r.stderr || `gh endete mit ${r.exitCode}`, 200))
+    return r.stdout
   }
   throw new Error(letzter)
 }
