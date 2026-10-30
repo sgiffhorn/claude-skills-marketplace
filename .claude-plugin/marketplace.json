@@ -11,6 +11,12 @@
       "description": "Autonomer Planer/Worker/Reviewer-Betrieb auf Claude-Code-Routines, abgestimmt nur ueber GitHub-Labels.",
       "source": "./plugins/autopilot",
       "category": "development"
+    },
+    {
+      "name": "autopilot-monitor",
+      "description": "Panel neben dem Chat: Autopilot-Auftraege, letzte Routine-Laeufe und Deckel-Warnungen aller Repos.",
+      "source": "./plugins/autopilot-monitor",
+      "category": "development"
     }
   ]
 }

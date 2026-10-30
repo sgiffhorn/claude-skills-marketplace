@@ -1,6 +1,6 @@
 # claude-skills-marketplace
 
-Fünf Custom Slash-Commands für Claude Code plus ein Hilfsskript, zum Kopieren, nicht als Plugin. Dazu ein echtes Plugin, `autopilot` (siehe unten).
+Fünf Custom Slash-Commands für Claude Code plus ein Hilfsskript, zum Kopieren, nicht als Plugin. Dazu zwei echte Plugins, `autopilot` und `autopilot-monitor` (siehe unten).
 
 **Warum kein Plugin:** Claude-Code-Plugin-Commands sind immer namespaced (`/plugin-name:command-name`), es gibt keinen Weg zu einem bare `/backlog`. Wer den kurzen Befehl will, muss die Datei stattdessen in sein eigenes `.claude/commands/` legen — dann lädt Claude Code sie unter ihrem Dateinamen, ohne Präfix.
 
@@ -54,6 +54,14 @@ claude plugin install autopilot@sgiffhorn-skills
 ```
 
 Routines laden das Plugin nicht über `.claude/settings.json`, das installiert die Cloud nicht. Der Routine-Prompt klont dieses Repo nach `/tmp/autopilot-skills` und befolgt die `SKILL.md` seiner Rolle. Die Skills sprechen GitHub nur per `gh api` (REST) mit Seitenschleife an, weil `gh pr`, `gh issue`, `search/issues` und `--paginate` im Cloud-Lauf 403 liefern, und tragen die Hausregeln selbst, weil die Cloud `~/.claude/CLAUDE.md` nicht sieht.
+
+## Plugin `autopilot-monitor`
+
+Panel neben dem Chat, das den Autopilot aller Repos zeigt: Aufträge nach Labels, letzte Läufe von Planer, Worker und Reviewer, Warnung wenn ein Deckel greift. Die Repos findet es selbst über die Namen der Routinen. Ein- und ausblenden mit `/autopilot-panel`. Details: [`plugins/autopilot-monitor/README.md`](plugins/autopilot-monitor/README.md).
+
+```bash
+claude plugin install autopilot-monitor@sgiffhorn-skills
+```
 
 ## Handoff-Verzeichnis
 
