@@ -74,7 +74,7 @@ Jeder Text, den du schreibst, beginnt mit einem HTML-Kommentar. Kommentare ohne 
 
 Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, denn eigene Label-Wechsel lösen ebenfalls Läufe aus.
 
-1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`. Der älteste zuerst.
+1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
 
 Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
@@ -103,7 +103,10 @@ Neuer Auftrag `#N`:
 2. Kommentar `<!-- autopilot:work-start -->` mit Startzeit und Branch `claude/autopilot-N`.
 3. Kommentare des Issues neu lesen. Gibt es einen zweiten `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner, hat ein anderer Lauf gewonnen: Ende ohne weitere Änderung.
 
-Nacharbeit an PR `#P` zu Issue `#N`: Kommentar `<!-- autopilot:work-start -->` am Issue `#N` („Nacharbeit PR #P“). Labels bleiben, bis du fertig bist.
+Nacharbeit an PR `#P` zu Issue `#N`:
+
+1. Kommentar `<!-- autopilot:work-start -->` am Issue `#N` („Nacharbeit PR #P“). Labels bleiben, bis du fertig bist.
+2. Rennprüfung wie beim neuen Auftrag: Kommentare des Issues neu lesen; ein zweiter `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner heißt Ende ohne weitere Änderung.
 
 ## 3. Spec prüfen
 
