@@ -65,7 +65,7 @@ PRs sind für Labels und Kommentare auch Issues: dieselben `issues/$P/…`-Pfade
 
 Jeder Text, den du schreibst, beginnt mit einem HTML-Kommentar. Kommentare ohne Marker stammen vom Menschen.
 
-- `<!-- autopilot:work-start -->` Lauf begonnen (zählt die Tagesläufe)
+- `<!-- autopilot:work-start -->` Lauf begonnen (zählt die Tagesläufe, außer bei verlorenem Rennen)
 - `<!-- autopilot:gate-fail -->` Gate gescheitert
 - `<!-- autopilot:needs-human -->` Frage an den Menschen
 - `<!-- autopilot:work-done -->` Abgabe oder Nacharbeit fertig
@@ -74,14 +74,25 @@ Jeder Text, den du schreibst, beginnt mit einem HTML-Kommentar. Kommentare ohne 
 
 Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, denn eigene Label-Wechsel lösen ebenfalls Läufe aus.
 
-1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`. Der älteste zuerst.
+1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
 
 Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 
 **Deckel prüfen**, bevor du etwas schreibst:
 
-- Tagesläufe (Kommentare seit Tagesbeginn mit `work-start`, nach `created_at`) haben `deckel.worker_laeufe_pro_tag` erreicht: Ende.
+- Tagesläufe haben `deckel.worker_laeufe_pro_tag` erreicht: Ende. Gezählt werden `work-start`-Kommentare seit Tagesbeginn (nach `created_at`), aber keiner, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt: der hat das Rennen in Schritt 2 verloren und nichts gearbeitet. Mit `seiten` von oben:
+
+  ```
+  TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
+  seiten repos/$REPO/issues/comments -f since=$(date -u -d "$TAG 15 minutes ago" +%FT%TZ) | jq --arg tag "$TAG" '
+    [.[] | select(.body | startswith("<!-- autopilot:work-start -->"))] as $w
+    | [$w[] | . as $c | select(.created_at >= $tag)
+       | select(any($w[]; .issue_url == $c.issue_url and .id < $c.id
+           and ($c.created_at | fromdate) - (.created_at | fromdate) <= 900) | not)]
+    | length'
+  ```
+
 - Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip`; das Label bleibt bis zum Merge am Issue) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
 
 ## 2. Übernehmen
@@ -92,7 +103,10 @@ Neuer Auftrag `#N`:
 2. Kommentar `<!-- autopilot:work-start -->` mit Startzeit und Branch `claude/autopilot-N`.
 3. Kommentare des Issues neu lesen. Gibt es einen zweiten `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner, hat ein anderer Lauf gewonnen: Ende ohne weitere Änderung.
 
-Nacharbeit an PR `#P` zu Issue `#N`: Kommentar `<!-- autopilot:work-start -->` am Issue `#N` („Nacharbeit PR #P“). Labels bleiben, bis du fertig bist.
+Nacharbeit an PR `#P` zu Issue `#N`:
+
+1. Kommentar `<!-- autopilot:work-start -->` am Issue `#N` („Nacharbeit PR #P“). Labels bleiben, bis du fertig bist.
+2. Rennprüfung wie beim neuen Auftrag: Kommentare des Issues neu lesen; ein zweiter `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner heißt Ende ohne weitere Änderung.
 
 ## 3. Spec prüfen
 
