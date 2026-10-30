@@ -177,6 +177,7 @@ jobs:
     env:
       CI_RESULT: ${{ needs.gate.outputs.ci }}
       CI_URL: ${{ needs.gate.outputs.ci_url }}
+      GATE_RESULT: ${{ needs.gate.result }}
       REVIEW_RESULT: ${{ needs.review.result }}
       VERDICT: ${{ needs.review.outputs.verdict }}
     steps:
@@ -187,14 +188,14 @@ jobs:
           N=${N%%[^0-9]*}
           echo "issue=$N" >>"$GITHUB_OUTPUT"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          if [ "$CI_RESULT" = timeout ]; then
-            echo "urteil=needs-human" >>"$GITHUB_OUTPUT"
-            printf '%s lieferte fuer %s kein Ergebnis (%s).\n' "$CI_WORKFLOW" "$SHA" "$run_url" >"$RUNNER_TEMP/text.md"
-            exit 0
-          fi
-          if [ "$REVIEW_RESULT" != success ] || [ -z "$VERDICT" ]; then
-            echo "urteil=needs-human" >>"$GITHUB_OUTPUT"
-            printf 'Review-Lauf ohne Urteil (%s).\n' "$run_url" >"$RUNNER_TEMP/text.md"
+          # Kein Urteil (Gate verdraengt, CI ohne Ergebnis, Review gescheitert):
+          # nichts schreiben, autopilot:review bleibt stehen. Der Worker stoesst
+          # ein haengendes Review neu an und gibt erst nach zwei Versuchen an
+          # den Menschen.
+          if [ "$GATE_RESULT" != success ] || [ "$CI_RESULT" = timeout ] \
+            || [ "$REVIEW_RESULT" != success ] || [ -z "$VERDICT" ]; then
+            echo "urteil=keins" >>"$GITHUB_OUTPUT"
+            echo "::notice::Kein Urteil (gate=$GATE_RESULT, ci=$CI_RESULT, review=$REVIEW_RESULT), $run_url"
             exit 0
           fi
           jq -r .text <<<"$VERDICT" >"$RUNNER_TEMP/text.md"
@@ -236,12 +237,13 @@ jobs:
           [ "$URTEIL_SHA" = "$SHA" ] || stop "Urteil gilt fuer $URTEIL_SHA, Head ist $SHA"
           [ "$CI_RESULT" = success ] || stop "$CI_WORKFLOW ist $CI_RESULT"
           # Testdateien zaehlen nicht; autopilot:gross-ok am Issue (nur vom
-          # Menschen gesetzt) hebt den Deckel fuer diesen Auftrag auf.
+          # Menschen gesetzt) hebt den Deckel fuer diesen Auftrag auf, 0 heisst
+          # kein Deckel.
           zeilen=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --paginate \
             -q '[.[] | select(.filename | test("(^|/)(tests?|__tests__|__snapshots__|e2e)/|\\.(test|spec)\\.[A-Za-z0-9]+$") | not) | .additions + .deletions] | add // 0' \
             | awk '{s+=$1} END {print s+0}')
           gross_ok=$(gh api "repos/$GITHUB_REPOSITORY/issues/${N:-0}/labels" -q '.[].name' 2>/dev/null | grep -cx 'autopilot:gross-ok' || true)
-          [ "$zeilen" -le "${deckel:-400}" ] || [ "${gross_ok:-0}" -gt 0 ] || stop "Diff $zeilen Zeilen ohne Tests, Deckel ${deckel:-400}"
+          [ "${deckel:-400}" = 0 ] || [ "$zeilen" -le "${deckel:-400}" ] || [ "${gross_ok:-0}" -gt 0 ] || stop "Diff $zeilen Zeilen ohne Tests, Deckel ${deckel:-400}"
           stack=$(gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f base="$HEAD_REF" -q length)
           [ "$stack" = 0 ] || stop "$stack offene PRs auf $HEAD_REF als Basis"
           # Die Pfade, die den Autopilot selbst steuern, prueft der Workflow
@@ -272,13 +274,19 @@ jobs:
       # Ein Merge mit dem GITHUB_TOKEN loest "Closes #N" nicht aus .
       - name: Verlinkte Issues schliessen
         if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'merge'
+        env:
+          N: ${{ steps.v.outputs.issue }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q .body \
-            | grep -oiE "(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+" \
-            | grep -oE "[0-9]+" | sort -u \
+          # Wiederholen: ein einzelnes "unexpected EOF" liess das Issue sonst
+          # offen. Was trotzdem scheitert, raeumt die Hygiene des Planers auf.
+          api() { for i in 1 2 3; do gh api "$@" && return 0; sleep 10; done; return 1; }
+          body=$(api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q .body) || body=
+          { echo "${N:-}"; grep -oiE "(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+" <<<"$body" | grep -oE "[0-9]+" || true; } \
+            | grep -E '^[0-9]+$' | sort -u \
             | while read -r n; do
-                gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$n/labels/autopilot%3Awip" || true
-                gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$n" -f state=closed -f state_reason=completed
+                gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$n/labels/autopilot%3Awip" >/dev/null 2>&1 || true
+                api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$n" -f state=closed -f state_reason=completed >/dev/null \
+                  || echo "::warning::Issue #$n nicht geschlossen"
               done
 
       - name: Nacharbeit

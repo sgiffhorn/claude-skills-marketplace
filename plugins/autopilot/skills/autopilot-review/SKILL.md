@@ -95,11 +95,11 @@ Runde: Zahl der Reviews am PR mit Marker `review-round` plus 1.
 Jeder Treffer führt direkt zu Schritt 5c (needs-human), mit dem Treffer als Grund:
 
 - Eine Datei aus `pulls/$P/files` liegt auf der Sperrliste.
-- Einfügungen plus Löschungen aus `pulls/$P/files` ohne Testdateien (Dateiname passt auf `(^|/)(tests?|__tests__|__snapshots__|e2e)/|\.(test|spec)\.[A-Za-z0-9]+$`) über `deckel.diff_zeilen`, außer Issue `#N` trägt `autopilot:gross-ok` (das setzt nur der Mensch).
+- Einfügungen plus Löschungen aus `pulls/$P/files` ohne Testdateien (Dateiname passt auf `(^|/)(tests?|__tests__|__snapshots__|e2e)/|\.(test|spec)\.[A-Za-z0-9]+$`) über `deckel.diff_zeilen`, außer Issue `#N` trägt `autopilot:gross-ok` (das setzt nur der Mensch). Ist `deckel.diff_zeilen` 0, entfällt diese Leitplanke; die Größe bewertest du dann in Schritt 4 (ein PR, der zwei getrennt nutzbare Ziele mischt, ist ein Befund).
 - `mergeable` ist `false` (bei `null` bis zu dreimal mit 10 s Abstand neu lesen).
 - Ein offener PR hat `claude/autopilot-N` als Basis (Stack, Squash würde ihn zerstören).
 - Klasse laut Spec ist C, oder die Spec fehlt.
-- Klasse B ohne Freigabe: in den Ereignissen des Issues muss `autopilot:proposed` entfernt worden sein, bevor `autopilot:ready` gesetzt wurde. Sonst gilt die Freigabe als nicht erteilt.
+- Klasse B ohne Freigabe: in den Ereignissen des Issues muss `autopilot:proposed` entfernt worden sein, bevor `autopilot:ready` gesetzt wurde. Sonst gilt die Freigabe als nicht erteilt. Mit `freigabe_b: auto` in `.claude/autopilot.md` gilt Klasse B als freigegeben, sobald sie `autopilot:ready` trägt.
 
 ## 3. Gate
 

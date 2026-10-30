@@ -6,6 +6,9 @@ journal_issue: 0
 # begleitet: Worker und Reviewer an, nur Klasse A, Reviewer mergt nicht
 # autonom: Reviewer mergt Klasse A und freigegebene Klasse B
 stufe: trockenlauf
+# mensch: Klasse B wartet als autopilot:proposed auf das Label des Menschen
+# auto: in Stufe autonom setzt der Planer Klasse B selbst auf autopilot:ready
+freigabe_b: mensch
 sprache: de
 gate: npm test
 merge_methode: squash
@@ -32,7 +35,7 @@ deckel:
   # ein neuer Befund je Runde ist Fortschritt; ein unbehobener aus der Vorrunde geht sofort an den Menschen
   review_runden: 3
   gate_fehlschlaege: 2
-  # Einfügungen plus Löschungen ohne Testdateien
+  # Einfügungen plus Löschungen ohne Testdateien; 0 heißt kein Deckel, dann urteilt nur das Review
   diff_zeilen: 400
   # Worker und Planer bremsen ab dieser Auslastung des 5h-Fensters (Prozent),
   # und wenn der Wochenverbrauch mehr als budget_woche_vorlauf Prozentpunkte vor dem Wochenfortschritt liegt
