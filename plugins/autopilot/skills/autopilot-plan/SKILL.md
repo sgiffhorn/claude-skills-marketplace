@@ -1,6 +1,6 @@
 ---
 name: autopilot-plan
-description: Planer-Lauf des Autopilots (Routine auf Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, leitet Aufträge aus Issues, einem Doku-Umlauf und Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
+description: Planer-Lauf des Autopilots (Routine auf Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, leitet Aufträge aus Issues und einem Sweep über die Doku des Repos und seiner Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
 ---
 
 # autopilot-plan
@@ -10,7 +10,7 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
 ## 0. Konfiguration lesen, sonst Ende
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, gib eine Zeile aus („keine .claude/autopilot.md, Ende“) und beende den Lauf ohne jeden Schreibzugriff.
-2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit ihren Umlauf-Listen, Ausschluss-Labels, Doku- und Testpflicht.
+2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit dem Umfang des Doku-Sweeps, Ausschluss-Labels, Doku- und Testpflicht.
 3. Zweit-Repos finden, nur lesen: Die Cloud klont jedes Repo aus den `sources` der Routine neben das eigene (`/home/user/<name>`, also `../<name>` vom Repo-Wurzelverzeichnis), und der GitHub-Proxy erlaubt `gh api repos/<owner>/<name>/…` nur für diese Repos. Fehlt `../<name>`, versuche `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zweit/<name>`. Scheitert auch das, steht das Repo nicht in den `sources`: im Journal unter „Braucht dich“ melden („Zweit-Repo <owner>/<name> nicht lesbar, in der Planer-Routine unter sources eintragen“) und ohne diese Quelle weiterplanen. In ein Zweit-Repo schreibst du nie, auch keine Issues; Aufträge landen immer in `$REPO`.
 4. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter: `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
 
@@ -79,7 +79,7 @@ Sammle, ohne etwas zu schreiben:
 - **needs-human:** offene Issues und PRs mit `needs-human`. Hat eines einen Kommentar ohne Marker, der jünger ist als der letzte Marker-Kommentar, liegt eine Antwort vor.
 - **Gemergt:** geschlossene PRs mit Head `claude/autopilot-*` und `merged_at` in den letzten 7 Tagen.
 - **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`.
-- **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue` (Zeiger der Umläufe: letzter Bereich, letztes Dokument, letztes Zweit-Repo-Dokument; bewertete und nicht übernommene Issues und Doku-Treffer mit Grund). Fehlt ein Zeiger, beginnt sein Umlauf vorn.
+- **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue`: Sweep-Stand je Repo, Datum der letzten Inventur, letzter Bereich, Vorrat (geprüfte Kandidaten ohne Platz) und „bewertet, nicht übernommen“ mit Grund.
 
 ## 2. Hygiene
 
@@ -92,7 +92,7 @@ Sammle, ohne etwas zu schreiben:
 - **Klasse B** (`autopilot:proposed`): bis `deckel.offene_vorschlaege` minus der schon offenen Vorschläge. Ein voller WIP-Deckel sperrt Vorschläge nicht, sie belegen keinen Worker.
 - Beides zusammen höchstens `deckel.neue_auftraege_pro_planerlauf` je Lauf.
 
-Ist für beide Klassen kein Platz, keine Kandidatensuche: direkt zu Schritt 6 (Journal). Die Umlauf-Zeiger bleiben dann stehen.
+Ohne Platz läuft der Doku-Sweep trotzdem, wenn er etwas zu tun hat (Inventur fällig oder Dokumente geändert): seine Ergebnisse gehen in den Vorrat. Issues und Bereichs-Review entfallen dann.
 
 ## 4. Kandidaten suchen
 
@@ -103,19 +103,24 @@ Die Quellen und ihre Reihenfolge stehen in `.claude/autopilot.md` unter „Plane
 - Beim Bereichs-Review im Umlauf genau einen Bereich je Lauf ansehen, den nächsten nach „letzter Bereich“, und höchstens 2 Befunde daraus aufnehmen.
 - Lies den Code, bevor du einen Befund behauptest. Ein Auftrag ohne geprüften Befund ist schlechter als keiner.
 
-### Umläufe (Doku und Zweit-Repos)
+### Doku-Sweep (eigenes Repo und Zweit-Repos)
 
-Eine Quelle mit Umlauf-Liste (Doku-Umlauf, Zweit-Repo-Umlauf) liest je Lauf genau ein Dokument:
+Der Sweep sieht in jedem Lauf den ganzen Doku-Bestand, nicht ein Dokument. Er liest nur Text, der Code-Abgleich kommt danach für eine begrenzte Auswahl.
 
-1. **Liste bilden**, jedes Mal neu und gleich: die Einträge in der Reihenfolge der Konfiguration; ein Glob alphabetisch mit `README.md` zuerst (`ls <glob> | sort`); ein Verweis auf eine Index-Tabelle in der Reihenfolge ihrer Zeilen, jede verlinkte Datei einzeln. Pfade unter `archive/`, `archiv/` und Dateien, die nicht mehr existieren, fallen heraus.
-2. **Zeiger:** im Planer-Gedächtnis steht je Umlauf das zuletzt gelesene Dokument. Nimm das nächste der Liste; nach dem letzten oder ohne Zeiger das erste; steht der Zeiger nicht mehr in der Liste, das erste, das alphabetisch danach kommt. Der Zeiger rückt in jedem Lauf mit Kandidatensuche vor, auch ohne Befund.
-3. **Lesen:** nennt die Konfiguration einen Abschnitt (`§ …`), nur diesen. Sonst das ganze Dokument, bei über 60 KB zuerst die Überschriften (`grep -n '^#'`) und dann die Abschnitte mit Treffern.
-4. **Treffer:** `- [ ]`, Überschriften oder Absätze mit „Offen“, „Offene Fragen“, „Nächste Schritte“, „Folge“, „Später“, „Ideen“, „Entwurf“, „geplant“, „noch nicht“, `TODO`; in ADRs die Abschnitte zu Konsequenzen und Folgepunkten; in Status-Dateien Zeilen zu `$REPO`. In einem Zweit-Repo nur, was `$REPO` betrifft (Repo-Name, seine Pfade, seine Routen).
-5. **Am Code prüfen**, je Treffer: `grep` nach den genannten Routen, Funktionen, Feldern, Env-Vars, Dateien in `$REPO`, und `git log --oneline -i --grep=<Stichwort> | head` für eine schon gemergte Umsetzung. Dann einordnen:
-   - umgesetzt, aber die Doku sagt es nicht: Klasse A, Doku-Drift (Doku nachziehen, Haken setzen);
-   - nicht umgesetzt, ohne offene Entscheidung, außerhalb der Sperrliste: Kandidat, meist Klasse B;
-   - wartet auf eine Entscheidung, berührt die Sperrliste, braucht Hardware, prod oder ein anderes Repo: kein Auftrag, Eintrag in „bewertet, nicht übernommen“ mit Datei, Abschnitt und Grund, damit ein späterer Umlauf ihn nicht erneut prüft.
-6. Höchstens 2 Kandidaten je Dokument.
+1. **Umfang:** die Dokumente aus „Planer-Quellen“ in `.claude/autopilot.md` (Globs, Index-Tabellen, `§`-Einschränkungen), je Zweit-Repo dessen Liste. Pfade unter `archive/` und `archiv/` fallen heraus.
+2. **Modus:**
+   - **Inventur**, wenn das Gedächtnis keinen Sweep-Stand hat oder die letzte Inventur älter ist als `deckel.inventur_tage` (Vorgabe 30): der ganze Umfang.
+   - **Änderungen** sonst: nur Dateien im Umfang, die sich seit dem Sweep-Stand geändert haben, je Repo `git log --name-only --format= <sha>..HEAD -- <pfade> | sort -u`. Ist der Klon flach (`git rev-parse --is-shallow-repository`), vorher `git fetch --shallow-since=<Datum des Sweep-Stands>`; fehlt der Stand-SHA danach immer noch, gilt der Lauf als Inventur.
+3. **Treffer sammeln** mit einem `grep -n -i -E` über die Dateien des Modus: harte Marker (`- \[ \]`, Überschriften mit Offen, Nächste Schritte, Folge, Später, Idee, Entwurf, `TODO`, `FIXME`) und weiche (offen, später, noch nicht, fehlt, nicht gebaut, zurückgestellt, geplant, Folge-PR, Stufe 2, Phase 2). In Zweit-Repos nur Abschnitte, die `$REPO` nennen oder seine Pfade und Routen.
+4. **Sichten:** Treffer je Abschnitt (nächste Überschrift darüber) bündeln, dann je Abschnitt den Text lesen. Weg fallen Abschnitte, die als erledigt markiert sind (✅, „erledigt“, „gebaut“, „umgesetzt“ mit Datum oder PR), reine Herleitung oder Messung ohne offene Arbeit, und alles, was schon im Vorrat, in „bewertet, nicht übernommen“ oder als Issue steht (Titelliste). Übrig bleibt eine Kandidatenliste: Abschnitt, offene Arbeit in einem Satz, vermutete Klasse.
+5. **Am Code prüfen**, höchstens `deckel.pruefungen_pro_lauf` Kandidaten (Vorgabe 15), zuerst die mit harten Markern, dann Feature-Designs vor Subsystem-Doku vor Handbuch. Je Kandidat: `grep` nach den genannten Routen, Funktionen, Feldern, Env-Vars und Dateien in `$REPO`, `git log --oneline -i --grep=<Stichwort> | head` für eine schon gemergte Umsetzung. Steht das Werkzeug `Agent` zur Verfügung, prüfe in Gruppen von bis zu 5 Kandidaten parallel: jeder Subagent bekommt Abschnittstext, Repo-Pfad und die Einordnungsregel unten und antwortet mit Einordnung, geprüften Pfaden und einem Satz Befund. Ungeprüfte Kandidaten bleiben für den nächsten Lauf liegen; der Sweep-Stand rückt dann nicht vor, die Inventur gilt als nicht abgeschlossen.
+6. **Einordnen:**
+   - umgesetzt, aber die Doku sagt es nicht: Klasse A, Doku-Drift;
+   - nicht umgesetzt, ohne offene Entscheidung, außerhalb der Sperrliste: Klasse B (oder A, wenn es nur Test, Lint oder Drift ist);
+   - wartet auf eine Entscheidung, berührt die Sperrliste, braucht Hardware, prod oder ein anderes Repo: „bewertet, nicht übernommen“ mit Grund.
+7. **Stand:** sind alle Kandidaten des Modus geprüft, Sweep-Stand je Repo auf `git rev-parse --short HEAD` und Datum setzen, bei Inventur auch deren Datum.
+
+Geprüfte Kandidaten, die in diesem Lauf keinen Platz bekommen, kommen in den Vorrat. Der nächste Lauf nimmt den Vorrat zuerst (kurzer Gegencheck per `grep`, ob noch offen) und sweept danach.
 
 ## 5. Klassifizieren, auswählen und spezifizieren
 
@@ -127,7 +132,7 @@ Eine Quelle mit Umlauf-Liste (Doku-Umlauf, Zweit-Repo-Umlauf) liest je Lauf gena
 
 **Größe:** S (eine Stelle, unter 100 Zeilen), M (unter 400 Zeilen Diff), L (mehr). L wird vorher in mehrere S/M-Aufträge geteilt; jeder Teil zählt gegen den Deckel.
 
-**Auswahl** im Platz aus Schritt 3: Bugs mit Repro zuerst, dann Kandidaten aus Issues, dann aus den Umläufen. Gibt es einen Klasse-B-Kandidaten und Platz für Klasse B, bekommt er mindestens einen der Plätze, auch wenn Klasse-A-Kandidaten alle füllen könnten. Einen umsetzbaren Klasse-B-Kandidaten hältst du nicht aus Vorsicht zurück: der Vorschlag kostet nichts, der Mensch entscheidet per Label. Übrige Kandidaten kommen mit „Platz“ als Grund in „bewertet, nicht übernommen“, damit der nächste Lauf sie aufgreift.
+**Auswahl** im Platz aus Schritt 3: Bugs mit Repro zuerst, dann Kandidaten aus Issues, dann der Vorrat, dann neue aus dem Sweep. Gibt es einen Klasse-B-Kandidaten und Platz für Klasse B, bekommt er mindestens einen der Plätze, auch wenn Klasse-A-Kandidaten alle füllen könnten. Einen umsetzbaren Klasse-B-Kandidaten hältst du nicht aus Vorsicht zurück: der Vorschlag kostet nichts, der Mensch entscheidet per Label. Was keinen Platz bekommt, geht in den Vorrat, nicht in „bewertet, nicht übernommen“.
 
 **Spec-Gerüst** (Issue-Text bei neuen Issues, Kommentar bei bestehenden, beide mit Marker `<!-- autopilot:spec -->` in der ersten Zeile):
 
@@ -180,14 +185,16 @@ Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>
 Worker-Läufe x von <deckel.worker_laeufe_pro_tag>, Planer-Läufe y, WIP x von <deckel>
 
 ### Planer-Gedächtnis
+Sweep-Stand: <repo> <sha> <Datum>; <zweit-repo> <sha> <Datum>
+Inventur: <Datum> (abgeschlossen | offen, n Kandidaten ungeprüft)
 Letzter Bereich: <Zeile der Landkarte>
-Letztes Dokument: <Pfad>
-Letztes Zweit-Repo-Dokument: <owner>/<repo>:<Pfad> (eine Zeile je Zweit-Repo)
+Vorrat:
+- A|B S|M <Pfad> § <Abschnitt>: <Befund in einem Satz>
 Bewertet, nicht übernommen: #n (Grund), <Pfad> § <Abschnitt> (Grund), …
 ```
 
-„Bewertet, nicht übernommen“ führt höchstens 40 Einträge; ältere fallen vorne heraus.
+Der Vorrat führt höchstens 30 Einträge, „bewertet, nicht übernommen“ höchstens 150 (ältere fallen vorne heraus). Der ganze Text bleibt unter 60 000 Zeichen; sonst zuerst die ältesten Einträge von „bewertet, nicht übernommen“ kürzen.
 
-**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, neue Aufträge mit Nummer und Klasse, gelesene Umlauf-Dokumente, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
+**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
 
 Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.

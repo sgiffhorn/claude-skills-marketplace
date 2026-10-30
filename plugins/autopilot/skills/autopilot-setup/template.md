@@ -26,8 +26,10 @@ deckel:
   wip: 2
   wip_begleitet: 1
   worker_laeufe_pro_tag: 6
-  neue_auftraege_pro_planerlauf: 3
-  offene_vorschlaege: 5
+  neue_auftraege_pro_planerlauf: 6
+  offene_vorschlaege: 10
+  pruefungen_pro_lauf: 15
+  inventur_tage: 30
   review_runden: 2
   gate_fehlschlaege: 2
   diff_zeilen: 400
@@ -62,13 +64,12 @@ Features, neue Routen, sichtbare UI-Änderungen.
 ## Planer-Quellen (in dieser Reihenfolge)
 
 1. Offene Issues ohne `autopilot:*`-Label und ohne Ausschluss-Label.
-2. **Doku-Umlauf** (Zeiger „Letztes Dokument“): je Lauf das nächste Dokument dieser Liste, der Reihe nach. Ein Glob läuft alphabetisch, `README.md` zuerst; `§ Abschnitt` heißt, nur diesen Abschnitt lesen.
-   - `docs/*.md`
-3. **Zweit-Repo-Umlauf** je Eintrag in `zweit_repos` (Zeiger „Letztes Zweit-Repo-Dokument“), gelesen wird nur, was dieses Repo betrifft:
-   - `OWNER/META:docs/*.md`
-4. Bereichs-Review im Umlauf (Zeiger „Letzter Bereich“): je Lauf ein Bereich des Codes, der Reihe nach. Gesucht: Testlücken, Doku-Drift, toter Code. Höchstens 2 Befunde je Lauf.
+2. **Doku-Sweep** über diese Dokumente (Inventur, danach nur Änderungen; Ablauf im Skill `autopilot-plan`). `§ Abschnitt` heißt, nur diesen Abschnitt lesen.
+   - `docs/**/*.md`
+   - je Eintrag in `zweit_repos`, nur was dieses Repo betrifft: `OWNER/META:docs/*.md`
+3. Bereichs-Review im Umlauf (Zeiger „Letzter Bereich“): je Lauf ein Bereich des Codes, der Reihe nach. Gesucht: Testlücken, Doku-Drift, toter Code. Höchstens 2 Befunde je Lauf.
 
-Treffer im Umlauf (`- [ ]`, „Offen“, „Nächste Schritte“, „Ideen“, `TODO`) werden am Code geprüft: schon umgesetzt ist Doku-Drift (Klasse A), umsetzbar ohne offene Entscheidung ist ein Vorschlag (meist Klasse B), alles mit offener Entscheidung oder auf der Sperrliste kommt mit Grund ins Gedächtnis.
+Jeder Doku-Treffer wird am Code geprüft: schon umgesetzt ist Doku-Drift (Klasse A), umsetzbar ohne offene Entscheidung ist ein Vorschlag (meist Klasse B), alles mit offener Entscheidung oder auf der Sperrliste kommt mit Grund ins Gedächtnis.
 
 ## Ausschluss-Labels
 
