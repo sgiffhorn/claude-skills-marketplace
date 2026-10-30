@@ -6,6 +6,7 @@ import type { Auftrag, Lauf, Phase, RepoSicht, Routine, Stand } from '../types'
 const PANE = 'autopilot-monitor'
 const TITEL = 'Autopilot'
 const TAKT_MS = 2 * 60 * 1000
+const BAND_TAKT_MS = 10 * 60 * 1000
 const LAEUFE_JE_ROUTINE = 5
 const READY_STAU_MS = 30 * 60 * 1000
 const GH = ['gh', '/usr/local/bin/gh', '/opt/homebrew/bin/gh']
@@ -18,6 +19,8 @@ const stand = atom(
   { at: 0, repos: [], isLoading: true } as Stand,
   { shape: 'stand-1' },
 )
+// Kennung der Deckel, die die Person im Band weggeklickt hat
+const bandWeg = atom({ plugin: 'autopilot-monitor', key: 'bandWeg' } as const, null as string | null)
 
 // ---------- Zeit in Europe/Berlin, ohne Intl ----------
 
@@ -471,6 +474,21 @@ async function leseRepo(
   return sicht
 }
 
+function workerVoll(r: RepoSicht): boolean {
+  return r.workerHeute !== undefined && r.workerDeckel !== undefined && r.workerHeute >= r.workerDeckel
+}
+
+function wipVoll(r: RepoSicht): boolean {
+  return r.wip !== undefined && r.wipDeckel !== undefined && r.wip >= r.wipDeckel
+}
+
+function deckelKurz(r: RepoSicht): string[] {
+  const t: string[] = []
+  if (workerVoll(r)) t.push(`Worker-Tageslimit ${r.workerHeute}/${r.workerDeckel}`)
+  if (wipVoll(r)) t.push(`WIP-Deckel ${r.wip}/${r.wipDeckel}`)
+  return t
+}
+
 let laeuft = false
 
 async function istOffen($: EngineInterface): Promise<boolean> {
@@ -507,13 +525,12 @@ export const register: Register = on => {
       description: 'Autopilot-Panel ein- oder ausblenden',
     })
     // Zuletzt gewaehlter Zustand gilt fuer jede neue Session
-    if ((await $.store.get('offen')) !== false) {
-      void $.ui.open({ id: PANE, title: TITEL })
-      void aktualisiere($)
-    }
-    // Abfragen nur, solange das Panel offen ist
+    if ((await $.store.get('offen')) !== false) void $.ui.open({ id: PANE, title: TITEL })
+    void aktualisiere($)
+    // Offenes Panel im Takt, sonst seltener fuer das Band
     $.clock.every(TAKT_MS, () => void (async () => {
-      if (await istOffen($)) await aktualisiere($)
+      const alt = (await read($, stand)).at
+      if ((await istOffen($)) || (await $.clock.now()) - alt >= BAND_TAKT_MS) await aktualisiere($)
     })())
     return next(e)
   })
@@ -534,6 +551,39 @@ export const register: Register = on => {
     if (e.id === PANE && e.origin.kind === 'person') await $.store.set('offen', false)
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+    const greifen = (await read($, stand)).repos
+      .map(r => ({ repo: r.repo, texte: deckelKurz(r) }))
+      .filter(g => g.texte.length > 0)
+    if (greifen.length === 0) return next(e)
+    const kennung = greifen.map(g => `${g.repo}:${g.texte.join(',')}`).join(';')
+    if ((await read($, bandWeg)) === kennung) return next(e)
+
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const offen = await istOffen($)
+    const text = greifen
+      .map(g => `${g.repo.split('/').pop()}: ${g.texte.join(', ')}`)
+      .join(' · ')
+
+    return (
+      <Box flexDirection="row" gap={1} alignItems="center">
+        <Text color="error">⚠ Autopilot {text}</Text>
+        {!offen && (
+          <Button
+            key="panel"
+            label="Panel"
+            onPress={async () => {
+              await $.store.set('offen', true)
+              await $.ui.open({ id: PANE, title: TITEL })
+            }}
+          />
+        )}
+        <Button key="weg" label="Ausblenden" onPress={() => update($, bandWeg, () => kennung)} />
+      </Box>
+    )
+  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Link } = $.ui.resolve(e)
@@ -559,12 +609,12 @@ export const register: Register = on => {
         )}
         {s.repos.map(r => {
           const warnungen: string[] = []
-          if (r.workerHeute !== undefined && r.workerDeckel !== undefined && r.workerHeute >= r.workerDeckel) {
+          if (workerVoll(r)) {
             warnungen.push(
               `Worker-Tageslimit erreicht: ${r.workerHeute} von ${r.workerDeckel} Läufen heute. Neue Läufe enden ohne Arbeit bis 00:00 ${istSommerzeit(jetzt) ? 'CEST' : 'CET'}.`,
             )
           }
-          if (r.wip !== undefined && r.wipDeckel !== undefined && r.wip >= r.wipDeckel) {
+          if (wipVoll(r)) {
             warnungen.push(`WIP-Deckel erreicht: ${r.wip} von ${r.wipDeckel}.`)
           }
           const stau = r.auftraege.filter(
