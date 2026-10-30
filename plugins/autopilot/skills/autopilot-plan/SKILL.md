@@ -83,7 +83,7 @@ Sammle, ohne etwas zu schreiben:
 - **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`. Ein `work-start`, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt, hat ein Rennen verloren und zählt nicht, wie beim Deckel im Worker:
 
   ```
-  TAG=$(date -u -d "$(TZ=Europe/Berlin date +%F) 00:00 $(TZ=Europe/Berlin date +%z)" +%FT%TZ)
+  TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
   seiten repos/$REPO/issues/comments -f since=$(date -u -d "$TAG 15 minutes ago" +%FT%TZ) | jq --arg tag "$TAG" '
     [.[] | select(.body | startswith("<!-- autopilot:work-start -->"))] as $w
     | [$w[] | . as $c | select(.created_at >= $tag)

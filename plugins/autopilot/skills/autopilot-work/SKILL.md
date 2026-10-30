@@ -84,7 +84,7 @@ Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 - Tagesläufe haben `deckel.worker_laeufe_pro_tag` erreicht: Ende. Gezählt werden `work-start`-Kommentare seit Tagesbeginn (nach `created_at`), aber keiner, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt: der hat das Rennen in Schritt 2 verloren und nichts gearbeitet. Mit `seiten` von oben:
 
   ```
-  TAG=$(date -u -d "$(TZ=Europe/Berlin date +%F) 00:00 $(TZ=Europe/Berlin date +%z)" +%FT%TZ)
+  TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
   seiten repos/$REPO/issues/comments -f since=$(date -u -d "$TAG 15 minutes ago" +%FT%TZ) | jq --arg tag "$TAG" '
     [.[] | select(.body | startswith("<!-- autopilot:work-start -->"))] as $w
     | [$w[] | . as $c | select(.created_at >= $tag)
