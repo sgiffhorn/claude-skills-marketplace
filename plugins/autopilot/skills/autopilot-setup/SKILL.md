@@ -81,5 +81,6 @@ Kurz ausgeben: angelegte Labels, Journal-Issue mit Link, Pfad der Konfiguration,
 Für die Routines gilt:
 
 - **Laden:** Die Cloud installiert kein Plugin aus `.claude/settings.json` (`extraKnownMarketplaces`, `enabledPlugins`), und die Routine-Felder `enabled_plugins` und `extra_marketplaces` übernimmt die API nicht. Der Routine-Prompt klont deshalb `sgiffhorn/claude-skills-marketplace` nach `/tmp/autopilot-skills` und befolgt `plugins/autopilot/skills/autopilot-<rolle>/SKILL.md`. Änderungen an den Skills wirken so ab dem nächsten Lauf.
+- **Zweit-Repos:** Jedes Repo aus `zweit_repos` gehört zusätzlich in die `sources` der Planer-Routine (`session_context.sources`, je ein `git_repository`). Nur dann klont die Cloud es nach `/home/user/<name>` und der GitHub-Proxy lässt `gh api repos/<owner>/<name>/…` durch; ein Repo außerhalb der `sources` antwortet 403 („GitHub access to this repository is not enabled for this session“, gemessen 2026-10-30).
 - **Connectors:** Die API hängt beim `create` alle claude.ai-Connectors des Accounts an. Danach die Routine mit `clear_mcp_connections: true` aktualisieren; keine Rolle braucht einen.
 - **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs).

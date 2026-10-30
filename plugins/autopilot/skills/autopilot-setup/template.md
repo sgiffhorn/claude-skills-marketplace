@@ -13,6 +13,8 @@ merge_methode: squash
 # api: Reviewer-Routine mergt per gh api (Cloud-Auto-Mode blockt das ohne Org-Freigabe)
 # label: Reviewer-Routine setzt autopilot:merge, ein eigener Workflow im Repo mergt
 merge_weg: action
+# weitere Repos, die der Planer liest (nie schreibt), z. B. ein Meta-Repo; jedes auch in die sources der Planer-Routine
+zweit_repos: []
 environments:
   planer: NAME-plan
   worker: NAME-cloud
@@ -60,7 +62,13 @@ Features, neue Routen, sichtbare UI-Änderungen.
 ## Planer-Quellen (in dieser Reihenfolge)
 
 1. Offene Issues ohne `autopilot:*`-Label und ohne Ausschluss-Label.
-2. Offene Punkte aus der Doku, `TODO`/`FIXME` im Code.
+2. **Doku-Umlauf** (Zeiger „Letztes Dokument“): je Lauf das nächste Dokument dieser Liste, der Reihe nach. Ein Glob läuft alphabetisch, `README.md` zuerst; `§ Abschnitt` heißt, nur diesen Abschnitt lesen.
+   - `docs/*.md`
+3. **Zweit-Repo-Umlauf** je Eintrag in `zweit_repos` (Zeiger „Letztes Zweit-Repo-Dokument“), gelesen wird nur, was dieses Repo betrifft:
+   - `OWNER/META:docs/*.md`
+4. Bereichs-Review im Umlauf (Zeiger „Letzter Bereich“): je Lauf ein Bereich des Codes, der Reihe nach. Gesucht: Testlücken, Doku-Drift, toter Code. Höchstens 2 Befunde je Lauf.
+
+Treffer im Umlauf (`- [ ]`, „Offen“, „Nächste Schritte“, „Ideen“, `TODO`) werden am Code geprüft: schon umgesetzt ist Doku-Drift (Klasse A), umsetzbar ohne offene Entscheidung ist ein Vorschlag (meist Klasse B), alles mit offener Entscheidung oder auf der Sperrliste kommt mit Grund ins Gedächtnis.
 
 ## Ausschluss-Labels
 
