@@ -36,6 +36,7 @@ Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und h
 | `autopilot:review` | `1d76db` | Autopilot: PR fertig, Gate grün, Reviewer dran |
 | `autopilot:changes` | `d93f0b` | Autopilot: Nacharbeit aus dem Review |
 | `needs-human` | `b60205` | Automatik stoppt, Mensch entscheidet |
+| `autopilot:gross-ok` | `fbca04` | Mensch erlaubt einen PR über dem Diffdeckel |
 
 ```
 gh api repos/<repo>/labels -f name='autopilot:ready' -f color=0e8a16 -f description='…'

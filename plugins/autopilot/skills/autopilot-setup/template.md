@@ -25,15 +25,18 @@ modelle:
 deckel:
   wip: 2
   wip_begleitet: 1
-  # 2 Planer-Läufe mit je bis zu 6 neuen Aufträgen ergeben bis zu 12 Erstläufe am Tag; den Durchsatz bremsen wip und review_runden, dieser Deckel fängt nur Schleifen ab
-  worker_laeufe_pro_tag: 12
   neue_auftraege_pro_planerlauf: 6
   offene_vorschlaege: 10
   pruefungen_pro_lauf: 15
   inventur_tage: 30
   review_runden: 2
   gate_fehlschlaege: 2
+  # Einfügungen plus Löschungen ohne Testdateien
   diff_zeilen: 400
+  # Worker und Planer bremsen ab dieser Auslastung des 5h-Fensters (Prozent),
+  # und wenn der Wochenverbrauch mehr als budget_woche_vorlauf Prozentpunkte vor dem Wochenfortschritt liegt
+  budget_5h: 70
+  budget_woche_vorlauf: 10
   wip_timeout_stunden: 6
 ---
 

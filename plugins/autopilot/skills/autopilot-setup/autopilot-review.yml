@@ -68,24 +68,26 @@ jobs:
           deadline=$((SECONDS + 3600))
           neu=0
           while [ "$SECONDS" -lt "$deadline" ]; do
+            # Ein einzelner API-Fehler (etwa "unexpected EOF") beendet den
+            # Schritt nicht, die naechste Runde fragt erneut.
             run=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW/runs" \
               -f head_sha="$SHA" -f per_page=20 \
               -q '[.workflow_runs[] | select(.event == "pull_request" or .event == "workflow_dispatch")]
                   | sort_by(.created_at) | last // empty
-                  | "\(.id) \(.status) \(.conclusion) \(.html_url)"')
+                  | "\(.id) \(.status) \(.conclusion) \(.html_url)"') || { sleep 30; continue; }
             read -r id status conclusion url <<<"$run" || true
             if [ -z "$run" ]; then
               # Eine Concurrency-Gruppe kann wartende Laeufe still verdraengen.
               # Nach 5 Minuten ohne Lauf einmal neu anstossen.
               if [ "$neu" = 0 ] && [ "$SECONDS" -gt 300 ]; then
-                gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW/dispatches" -f ref="$HEAD_REF"
+                gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CI_WORKFLOW/dispatches" -f ref="$HEAD_REF" || true
                 neu=1
               fi
             elif [ "$status" = completed ]; then
               # Ein roter Lauf bekommt einen zweiten Versuch: auf
               # self-hosted Runnern ist Rot oft Infrastruktur.
               if [ "$conclusion" = failure ] && [ "$neu" = 0 ]; then
-                gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun-failed-jobs"
+                gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun-failed-jobs" || true
                 neu=1
                 sleep 30
                 continue
@@ -99,7 +101,7 @@ jobs:
                   ;;
                 *)
                   if [ "$neu" = 0 ]; then
-                    gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun"
+                    gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun" || true
                     neu=1
                   else
                     break
@@ -219,6 +221,7 @@ jobs:
         if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'merge'
         env:
           URTEIL_SHA: ${{ steps.v.outputs.sha }}
+          N: ${{ steps.v.outputs.issue }}
         run: |
           stop() { echo "Merge-Leitplanke: $1" | tee "$RUNNER_TEMP/grund.txt" >&2; exit 1; }
           # Ueber die API statt per Checkout: ein sparse Checkout bleibt im
@@ -232,8 +235,13 @@ jobs:
           [ "$stufe" = autonom ] || stop "stufe ist $stufe"
           [ "$URTEIL_SHA" = "$SHA" ] || stop "Urteil gilt fuer $URTEIL_SHA, Head ist $SHA"
           [ "$CI_RESULT" = success ] || stop "$CI_WORKFLOW ist $CI_RESULT"
-          zeilen=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" -q '.additions + .deletions')
-          [ "$zeilen" -le "${deckel:-400}" ] || stop "Diff $zeilen Zeilen, Deckel ${deckel:-400}"
+          # Testdateien zaehlen nicht; autopilot:gross-ok am Issue (nur vom
+          # Menschen gesetzt) hebt den Deckel fuer diesen Auftrag auf.
+          zeilen=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --paginate \
+            -q '[.[] | select(.filename | test("(^|/)(tests?|__tests__|__snapshots__|e2e)/|\\.(test|spec)\\.[A-Za-z0-9]+$") | not) | .additions + .deletions] | add // 0' \
+            | awk '{s+=$1} END {print s+0}')
+          gross_ok=$(gh api "repos/$GITHUB_REPOSITORY/issues/${N:-0}/labels" -q '.[].name' 2>/dev/null | grep -cx 'autopilot:gross-ok' || true)
+          [ "$zeilen" -le "${deckel:-400}" ] || [ "${gross_ok:-0}" -gt 0 ] || stop "Diff $zeilen Zeilen ohne Tests, Deckel ${deckel:-400}"
           stack=$(gh api -X GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f base="$HEAD_REF" -q length)
           [ "$stack" = 0 ] || stop "$stack offene PRs auf $HEAD_REF als Basis"
           # Die Pfade, die den Autopilot selbst steuern, prueft der Workflow
