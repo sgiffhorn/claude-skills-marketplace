@@ -10,7 +10,7 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
 ## 0. Konfiguration lesen, sonst Ende
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, gib eine Zeile aus („keine .claude/autopilot.md, Ende“) und beende den Lauf ohne jeden Schreibzugriff.
-2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit dem Umfang des Doku-Sweeps, Ausschluss-Labels, Doku- und Testpflicht.
+2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `freigabe_b` (Vorgabe `mensch`), `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit dem Umfang des Doku-Sweeps, Ausschluss-Labels, Doku- und Testpflicht.
 3. Zweit-Repos finden, nur lesen: Die Cloud klont jedes Repo aus den `sources` der Routine neben das eigene (`/home/user/<name>`, also `../<name>` vom Repo-Wurzelverzeichnis), und der GitHub-Proxy erlaubt `gh api repos/<owner>/<name>/…` nur für diese Repos. Fehlt `../<name>`, versuche `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zweit/<name>`. Scheitert auch das, steht das Repo nicht in den `sources`: im Journal unter „Braucht dich“ melden („Zweit-Repo <owner>/<name> nicht lesbar, in der Planer-Routine unter sources eintragen“) und ohne diese Quelle weiterplanen. In ein Zweit-Repo schreibst du nie, auch keine Issues; Aufträge landen immer in `$REPO`.
 4. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter (als `$TAG`): `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
 5. **Nachschub:** Trägt das Journal-Issue `autopilot:nachschub` (`gh api repos/$REPO/issues/$J/labels`, `$J` ist `journal_issue`), nimm es sofort ab (`gh api -X DELETE repos/$REPO/issues/$J/labels/autopilot%3Anachschub`) und merke dir den Lauf als Nachschub-Lauf. Antwortet das DELETE mit 404, hat ein anderer Lauf es genommen: weiter wie ohne Label. Der Worker setzt das Label, wenn er keine Arbeit findet; ein Webhook-Auslöser startet damit diesen Lauf.
@@ -119,6 +119,7 @@ Sammle, ohne etwas zu schreiben:
 ## 2. Hygiene
 
 - Ein Issue mit `autopilot:wip`, dessen letzter `work-start`-Kommentar älter ist als `deckel.wip_timeout_stunden` und zu dem kein offener PR mit Head `claude/autopilot-<n>` existiert: Kommentar mit Marker `needs-human` („Worker-Lauf seit <Zeit> ohne Ergebnis“), `autopilot:wip` nehmen, `needs-human` setzen.
+- Ein offenes Issue mit `autopilot:wip`, dessen PR mit Head `claude/autopilot-<n>` gemergt ist: `autopilot:wip` nehmen und das Issue schließen (`gh api -X PATCH repos/$REPO/issues/$N -f state=closed -f state_reason=completed`). Das schließt sonst der Review-Workflow; ist dort ein API-Aufruf gescheitert, räumst du nach, ohne es zu melden.
 - Sonst änderst du keine Labels an Arbeit, die schon läuft. Antworten an `needs-human`-Fällen setzt der Mensch selbst per Label um; du nennst sie nur im Journal.
 
 ## 2b. Fragen beantworten
@@ -135,7 +136,7 @@ Im Journal unter „Vorschläge zur Freigabe“ bekommt ein so beantwortetes Iss
 ## 3. Platz für neue Aufträge
 
 - **Klasse A** (`autopilot:ready`): nur, solange WIP plus wartende `autopilot:ready` unter dem WIP-Deckel liegen.
-- **Klasse B** (`autopilot:proposed`): bis `deckel.offene_vorschlaege` minus der schon offenen Vorschläge. Ein voller WIP-Deckel sperrt Vorschläge nicht, sie belegen keinen Worker.
+- **Klasse B** (`autopilot:proposed`): bis `deckel.offene_vorschlaege` minus der schon offenen Vorschläge. Ein voller WIP-Deckel sperrt Vorschläge nicht, sie belegen keinen Worker. Mit `freigabe_b: auto` gilt für Klasse B derselbe Platz wie für Klasse A, denn sie geht direkt auf `autopilot:ready`.
 - Beides zusammen höchstens `deckel.neue_auftraege_pro_planerlauf` je Lauf.
 
 Ohne Platz läuft der Doku-Sweep trotzdem, wenn er etwas zu tun hat (Inventur fällig oder Dokumente geändert): seine Ergebnisse gehen in den Vorrat. Issues und Bereichs-Review entfallen dann.
@@ -192,7 +193,7 @@ Geprüfte Kandidaten, die in diesem Lauf keinen Platz bekommen, kommen in den Vo
 **Nicht-Ziele:** was ausdrücklich draußen bleibt.
 **Tests und Doku:** welche Testdatei, welches Dokument im selben PR.
 **Klasse und Größe:** A|B, S|M
-**Zur Freigabe:** nur Klasse B, ein bis drei Sätze: Nutzen, offene Detailfrage, die der Mensch beim Freigeben beantworten kann.
+**Zur Freigabe:** nur Klasse B mit `freigabe_b: mensch`, ein bis drei Sätze: Nutzen, offene Detailfrage, die der Mensch beim Freigeben beantworten kann. Mit `freigabe_b: auto` entfällt die Zeile; eine offene Detailfrage entscheidest du in der Spec selbst, und braucht sie wirklich den Menschen, ist der Auftrag nicht reif und bleibt im Vorrat.
 ```
 
 Ein Worker, der dieses Repo nicht kennt, muss allein damit fertig werden. Jede Review-Runde kostet zwei Läufe, die Spec ist der größte Hebel.
@@ -203,9 +204,9 @@ Ein Worker, der dieses Repo nicht kennt, muss allein damit fertig werden. Jede R
 |---|---|---|
 | `trockenlauf` | `autopilot:proposed` | `autopilot:proposed` |
 | `begleitet` | `autopilot:ready` | `autopilot:proposed` |
-| `autonom` | `autopilot:ready` | `autopilot:proposed` |
+| `autonom` | `autopilot:ready` | `autopilot:proposed`, mit `freigabe_b: auto` `autopilot:ready` |
 
-`autopilot:ready` an Klasse B setzt nur der Mensch. Du setzt es dort nie.
+`autopilot:ready` an Klasse B setzt sonst nur der Mensch. Ohne `freigabe_b: auto` setzt du es dort nie, auch nicht an einem bestehenden Vorschlag. Mit `freigabe_b: auto` gibst du in Stufe `autonom` auch offene Vorschläge frei: `autopilot:proposed` nehmen, `autopilot:ready` setzen, im Rahmen des Platzes für Klasse A, die ältesten zuerst.
 
 ## 6. Journal fortschreiben (jeder Lauf, auch Leerlauf)
 

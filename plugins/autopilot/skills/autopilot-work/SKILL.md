@@ -70,10 +70,19 @@ Jeder Text, den du schreibst, beginnt mit einem HTML-Kommentar. Kommentare ohne 
 - `<!-- autopilot:gate-fail -->` Gate gescheitert
 - `<!-- autopilot:needs-human -->` Frage an den Menschen
 - `<!-- autopilot:work-done -->` Abgabe oder Nacharbeit fertig
+- `<!-- autopilot:review-neu -->` hängendes Review neu angestoßen
 
 ## 1. Auftrag wählen (nur lesen)
 
 Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, denn eigene Label-Wechsel lösen ebenfalls Läufe aus.
+
+**Vorher hängende Reviews anstoßen** (nur bei `merge_weg: action`, kein Auftrag, danach weiter mit der Auswahl). Findet der Review-Workflow kein Urteil (Gate verdrängt, CI ohne Ergebnis, Review-Lauf gescheitert), lässt er `autopilot:review` stehen und schreibt nichts. Je offenem PR mit Head `claude/autopilot-*`, Label `autopilot:review` und ohne `needs-human`:
+
+1. Läufe des Workflows für den Head-SHA: `gh api -X GET repos/$REPO/actions/workflows/autopilot-review.yml/runs -f head_sha=<sha> -f per_page=20`. Läuft einer (`queued`, `in_progress`, `waiting`), nichts tun.
+2. Sonst hängt das Review, wenn der jüngste Lauf seit mehr als 15 Minuten fertig ist oder es keinen gibt und das jüngste `labeled`-Ereignis mit `autopilot:review` (`seiten repos/$REPO/issues/$P/events`) älter als 15 Minuten ist.
+3. Hängt es: stehen am PR schon zwei Kommentare `<!-- autopilot:review-neu -->` mit diesem SHA, Schritt 7 am PR („Review zweimal ohne Urteil“, mit Link auf den letzten Lauf). Sonst Kommentar `<!-- autopilot:review-neu -->` mit SHA und Lauf-Link, `autopilot:review` nehmen und wieder setzen; das Label-Ereignis startet das Review neu.
+
+Antwortet die Actions-API mit 403, eine Zeile ausgeben und diesen Schritt überspringen.
 
 1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
@@ -159,7 +168,7 @@ Abbruch nach Schritt 7 (needs-human), wenn:
    git diff --numstat origin/$DEFAULT...HEAD | awk -F'\t' '$3 !~ /(^|\/)(tests?|__tests__|__snapshots__|e2e)\/|\.(test|spec)\.[A-Za-z0-9]+$/ {s+=$1+$2} END {print s+0}'
    ```
 
-   Über `deckel.diff_zeilen`: kein PR, Schritt 7 mit einem Vorschlag, wie man teilt. Der Befund nennt, wie der Mensch fortsetzt: `autopilot:gross-ok` und `autopilot:ready` am Issue setzen heißt ein PR trotz Größe. Trägt das Issue `autopilot:gross-ok`, entfällt diese Prüfung.
+   Ist `deckel.diff_zeilen` 0, entfällt diese Prüfung. Über `deckel.diff_zeilen`: kein PR, Schritt 7 mit einem Vorschlag, wie man teilt. Der Befund nennt, wie der Mensch fortsetzt: `autopilot:gross-ok` und `autopilot:ready` am Issue setzen heißt ein PR trotz Größe. Trägt das Issue `autopilot:gross-ok`, entfällt diese Prüfung.
 4. Sperrliste gegen `git diff --name-only origin/$DEFAULT...HEAD`: ein Treffer heißt Schritt 7.
 5. UI-Beleg nach „UI-Beleg“ in `.claude/autopilot.md`, wenn die Änderung sichtbar ist.
 
