@@ -1,14 +1,54 @@
 ---
-description: Zeigt alle offenen Handoffs repo-übergreifend und spawnt daraus Chip-Sessions
+description: Zeigt alle offenen Handoffs und die Autopilot-Entscheidungen auf GitHub repo-übergreifend, spawnt Chip-Sessions und gibt Vorschläge frei
 ---
 
-Zentraler Rückstand über **alle** Repos. Quelle ist ausschließlich das
-Handoff-Verzeichnis (`$HANDOFF_DIR`, siehe unten) — eine Datei pro offener Aufgabe,
-`<repo>__<slug>.md`.
+Zentraler Rückstand über **alle** Repos. Zwei Quellen:
 
-**Der Index wird immer frisch aus dem Verzeichnis gelesen, nie gespeichert.** Eine
-gepflegte Indexdatei driftet garantiert von den Handoffs weg; das Verzeichnis ist die
-einzige Wahrheit.
+1. das Handoff-Verzeichnis (`$HANDOFF_DIR`, siehe unten), eine Datei pro offener Aufgabe,
+   `<repo>__<slug>.md`;
+2. die Entscheidungen, die ein Autopilot auf GitHub für dich liegen lässt (Abschnitt
+   „Autopilot-Entscheidungen“ unten): Vorschläge `autopilot:proposed` und Fragen
+   `needs-human`.
+
+**Der Index wird immer frisch aus Verzeichnis und GitHub gelesen, nie gespeichert.** Eine
+gepflegte Indexdatei driftet garantiert weg; Verzeichnis und Labels sind die einzige
+Wahrheit.
+
+## Autopilot-Entscheidungen
+
+**Repos finden:** jedes Verzeichnis `~/Documents/Coding/*/` mit `.claude/autopilot.md`
+im Arbeitsbaum oder auf dem Default-Branch des Remotes
+(`git -C <dir> cat-file -e origin/HEAD:.claude/autopilot.md`, ohne vorheriges `fetch`).
+Aus der Kopfzeile `repo:` (owner/name) lesen und **nach `repo:` deduplizieren**: dasselbe
+Repo liegt oft in mehreren Verzeichnissen (Zweit-Klone wie `Hezo-OPS-schichtleiter`) und
+darf nur einmal abgefragt werden. Worktrees unter `.claude/worktrees/` zählen nicht extra.
+
+**Je Repo lesen** (lokal geht `gh issue`/`gh pr`, anders als in der Cloud):
+
+```bash
+gh issue list -R <repo> --state open --label autopilot:proposed --json number,title,body,createdAt,url
+gh issue list -R <repo> --state open --label needs-human --json number,title,url,updatedAt
+gh pr list    -R <repo> --state open --label needs-human --json number,title,url,updatedAt
+```
+
+Das Journal-Issue selbst ist keine Entscheidung und wird nie gelistet. Scheitert `gh`
+(kein Login, kein Zugriff), das Repo mit einer Zeile melden und weitermachen.
+
+**Je Treffer eine 🙋-Zeile** in der Gruppe des Repos, vor den 🙋-Zeilen der Handoffs.
+Gruppenschlüssel ist der Name-Teil von `repo:` in Kleinbuchstaben (`hezo-ops`), derselbe
+Schlüssel wie das Feld `repo` der Handoffs; gibt es dazu keine Handoffs, bekommt das Repo
+eine eigene Gruppe.
+
+- Vorschlag: `g<n> 🙋 #<nr> <Titel>: freigeben? (<Klasse>, <Größe>)` und, falls die Spec
+  eine Zeile `**Zur Freigabe:**` hat, deren offene Frage als Halbsatz dahinter. Klasse und
+  Größe stehen in der Spec-Zeile `**Klasse und Größe:**`.
+- Frage: `g<n> 🙋 #<nr> <Titel>: Frage des Autopilots` mit dem ersten Satz aus dem
+  jüngsten Kommentar mit `<!-- autopilot:needs-human -->`; ohne solchen Kommentar
+  „needs-human ohne Frage“. PRs mit `PR #<nr>`.
+
+`g`-Nummern zählen über alle Repos durch, getrennt von den Handoff-Nummern, und gelten
+wie diese nur für den einen Aufruf. Hinter jeder Zeile der Link als Markdown-Link auf
+die Nummer.
 
 ## Handoff-Verzeichnis ermitteln (einmalig, dann gemerkt)
 
@@ -65,14 +105,38 @@ gelistet oder gespawnt.
 `$ARGUMENTS` entscheidet:
 
 ### (leer) — auflisten
-Alle `*.md` mit `status: open` oder `status: running`, **nach Repo gruppiert**,
-innerhalb einer Gruppe älteste zuerst. Pro Zeile: laufende Nummer, `title`, Alter in
-Tagen, und darunter eingerückt `next`. Läuft eine Zeile bereits (`status: running`),
-das deutlich markieren, z. B. `⏳ läuft bereits (seit <running-since>)` statt/neben
-`next`. Das ist der Hinweis, der Doppel-Starts verhindert. Zeilen mit `where: cloud`
-bekommen ein `☁`; läuft eine davon, steht dort `☁ läuft in der Cloud (seit …)` und
-bei `cloud-session: pending` zusätzlich `Session-Link fehlt`. Am Ende die Gesamtzahl
-(getrennt nach offen/laufend) und ein Hinweis, wie man spawnt.
+Alle `*.md` mit `status: open` oder `status: running`, **nach Repo gruppiert**
+(Repos alphabetisch, Repo-Name fett als Gruppenkopf). Jede Zeile bekommt ein
+**Zustands-Icon**, das aus `status`, `next` und dem heutigen Datum abgeleitet wird
+(pro Aufruf neu, nie in die Datei geschrieben):
+
+- 🟢 **jetzt machbar**: eine Session kann sofort loslegen (auch wenn einzelne Befehle
+  später Freigaben brauchen).
+- 🙋 **wartet auf dich**: der nächste Schritt ist eine Entscheidung, ein Merge, ein
+  Handgriff vor Ort oder "erst auf Zuruf".
+- 📅 **wartet auf ein Datum**: `next` nennt einen Termin in der Zukunft ("ab …", "am …",
+  "Mitte November"). Ist das Datum erreicht, wird daraus 🟢.
+- ⛔ **wartet auf andere**: blockiert durch Dritte, Upstream oder eine andere Aufgabe.
+- ⏳ **läuft gerade** (`status: running`), mit `(seit <running-since>)`. Wartet die
+  laufende Session auf den Nutzer, `⏳🙋`. Das ist der Hinweis, der Doppel-Starts
+  verhindert.
+
+Innerhalb eines Repos in genau dieser Reihenfolge sortieren (🟢, 🙋, 📅, ⛔, ⏳),
+innerhalb gleicher Icons nach Datum (📅) bzw. älteste zuerst. Pro Zeile **eine Zeile**:
+Nummer, Icon, Kurztitel, Doppelpunkt, der konkrete nächste Schritt bzw. worauf
+gewartet wird, auf einen Halbsatz verdichtet (bei 📅 das Datum vorne: `📅 28.10.: …`).
+Kein Alter in Tagen, kein eingerücktes `next`. Zeilen mit `where: cloud` bekommen
+zusätzlich `☁`; läuft eine davon, `☁ läuft in der Cloud (seit …)`, bei
+`cloud-session: pending` zusätzlich `Session-Link fehlt`. Ist die Einordnung unklar,
+im Zweifel 🙋 statt 🟢.
+
+Die Autopilot-Entscheidungen (Abschnitt oben) stehen mit in derselben Liste, als
+🙋-Zeilen mit `g`-Nummer. Sie zählen in der Summenzeile bei 🙋 mit, dazu in Klammern
+`davon g Autopilot`.
+
+Über der Liste eine Legende in einer Zeile. Am Ende eine Summenzeile je Icon
+(`8 🟢 · 11 🙋 · …`), die Anzahl archivierter Aufgaben, Fristen der nächsten Tage in
+einem Satz, und der Hinweis, wie man spawnt.
 
 Nummern sind **positionsbasiert und nur für diesen Aufruf gültig** — sag das dazu, damit
 niemand sie sich notiert. Archivierte (`done`) werden nicht gezeigt; erwähne nur ihre
@@ -88,8 +152,9 @@ Danach je Zeile den Weg wählen:
 
 - **`where: cloud`** und das Repo hat einen GitHub-Remote: **Cloud-Chip anlegen**
   nach `~/.claude/cloud-spawn.md` (Chip mit vollständigem Cloud-Prompt, Titel mit `☁`,
-  der Nutzer startet ihn über „In die Cloud senden“). Weil die Cloud die Handoff-Datei
-  weder lesen noch beschreiben kann, setzt `/backlog` beim Anlegen selbst `status: running`, `running-since` und
+  der Nutzer startet ihn über „In die Cloud senden"; nur so zieht das Guthaben,
+  Routines nicht). Weil die Cloud die Handoff-Datei weder lesen noch beschreiben kann,
+  setzt `/backlog` beim Anlegen selbst `status: running`, `running-since` und
   `cloud-session: pending`. Nach dem Start die Sitzung per `ListAgents` (Titel mit `☁`,
   Typ `cloud`) suchen und `pending` durch `agent <ref>` ersetzen; ein vom Nutzer
   genannter Session-Link geht ebenso. Startet er den Chip doch nicht oder lokal: `reset <slug>`.
@@ -97,9 +162,11 @@ Danach je Zeile den Weg wählen:
 - Sonst lokal:
 
 Für jede lokale Zeile **einen** Chip via `spawn_task` anlegen:
-- `cwd`: `~/Documents/Coding/<repo>` aus der Frontmatter. Existiert das Verzeichnis
-  nicht, den Eintrag überspringen und das melden — ein Chip mit falschem `cwd` startet
-  im falschen Repo.
+- `cwd`: `~/Documents/Coding/<repo>` aus der Frontmatter, mit der echten Schreibweise
+  des Ordners (`repo` ist klein, der Ordner kann anders heißen, z. B. `Hezo-OPS`; die
+  App lehnt eine abweichende Schreibweise ab). Ermitteln mit
+  `ls ~/Documents/Coding | grep -ixF '<repo>'`. Kein Treffer: Eintrag überspringen und
+  melden, ein Chip mit falschem `cwd` startet im falschen Repo.
 - `title`: der `title` der Frontmatter, auf 60 Zeichen gekürzt.
 - `tldr`: der `next`-Satz.
 - `prompt`: **muss allein stehen** (der Chip trägt keinen Gesprächskontext). Nimm den
@@ -159,6 +226,29 @@ Holt die Ergebnisse der Cloud-Sitzungen ab. Mit Slug und Link wird zuerst der Li
    einem Satz melden.
 
 Am Ende je Datei eine Zeile: übernommen, noch aktiv oder gescheitert.
+
+### `freigeben g<n> [g<n> …]`
+Gibt Autopilot-Vorschläge frei. Je Nummer zuerst frisch nachsehen, dass das Issue noch
+offen ist und `autopilot:proposed` trägt (zwischen Liste und Freigabe können Minuten
+liegen); sonst überspringen und melden. Dann:
+
+```bash
+gh issue edit <nr> -R <repo> --remove-label autopilot:proposed --add-label autopilot:ready
+```
+
+Das Label startet den Worker des Repos sofort. Nur auf ausdrückliche Nummernwahl des
+Nutzers, nie gebündelt „alle“, und nie für `needs-human`-Zeilen: dort ist eine Antwort
+gefragt, kein Label. Danach je Nummer eine Zeile: freigegeben oder übersprungen.
+
+### `ablehnen g<n> [Grund]`
+Schließt einen Vorschlag als nicht geplant, damit der Planer ihn nicht erneut vorschlägt
+(er prüft offene und geschlossene Titel auf Dubletten):
+
+```bash
+gh issue close <nr> -R <repo> --reason "not planned" --comment "Abgelehnt: <Grund>"
+```
+
+Ohne Grund nur „Abgelehnt.“. Auch hier vorher prüfen, dass das Issue noch offen ist.
 
 ### `done <slug>`
 `status: done` in die Datei schreiben **und** sie nach `$HANDOFF_DIR/done/` verschieben.
@@ -239,6 +329,10 @@ stehen, `worktree remove` löscht sie nicht, ein `git branch -D` ist eine eigene
 ausdrückliche Entscheidung des Operators und passiert hier nicht.
 
 ## Regeln
+
+- **Autopilot-Labels setzt `/backlog` nur über `freigeben` und `ablehnen`**, nie beim
+  Auflisten und nie aus eigenem Urteil. Antworten auf `needs-human` schreibt der Nutzer
+  (oder auf seinen Zuruf eine Session); `/backlog` verlinkt nur.
 
 - **Nie eine Handoff-Datei löschen.** Erledigtes wandert nach `done/`; das ist der
   Forensik-Pfad, wenn sich herausstellt, dass doch etwas offen war.
