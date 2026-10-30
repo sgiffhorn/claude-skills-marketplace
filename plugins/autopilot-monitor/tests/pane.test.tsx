@@ -128,7 +128,9 @@ const PANE = {
 test('das Panel zeigt Deckel, Stau und Laeufe auf jeder Oberflaeche', async ($, on) => {
   const uhr = mock.clock(on)
   await uhr.set(STAND.at)
-  on('state.get', () => ({ value: { value: { shape: 'stand-1', value: STAND }, version: 1 } }))
+  on('state.get', ($, e, next) =>
+    e.key === 'stand' ? { value: { value: { shape: 'stand-1', value: STAND }, version: 1 } } : next(e),
+  )
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -140,4 +142,37 @@ test('das Panel zeigt Deckel, Stau und Laeufe auf jeder Oberflaeche', async ($, 
     expect(await ui.find({ type: 'Text', text: /Tageslimit erreicht: 6 von 6 work-start/ })).toBeTruthy()
     await ui.unmount()
   }
+})
+
+const BAND = {
+  plugin: 'autopilot-monitor',
+  component: 'AbovePrompt',
+  props: {
+    hasSurvey: false,
+    isWorking: false,
+    maxRows: 10,
+    bodyColumns: 80,
+    scroll: { offset: 0, bodyRows: 10 },
+    view: {},
+  },
+} as const
+
+test('das Band zeigt greifende Deckel und laesst sich ausblenden', async ($, on) => {
+  on('ui.panes', () => ({ value: [] }))
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box' as const }))
+  on('state.get', ($, e, next) =>
+    e.key === 'stand' ? { value: { value: { shape: 'stand-1', value: STAND }, version: 1 } } : next(e),
+  )
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect(await ui.find({ type: 'Text', text: /repo: Worker-Tageslimit 6\/6/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /WIP/ })).toBeFalsy()
+    await ui.unmount()
+  }
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'weg' })
+  expect(await ui.find({ type: 'Text', text: /Worker-Tageslimit/ })).toBeFalsy()
+  await ui.unmount()
 })

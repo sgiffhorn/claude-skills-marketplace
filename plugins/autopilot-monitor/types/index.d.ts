@@ -35,6 +35,6 @@ export type Stand = { at: number; repos: RepoSicht[]; isLoading: boolean; fehler
 
 declare module 'claude-code' {
   interface PluginState {
-    'autopilot-monitor': { stand: Shaped<Stand> }
+    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null }
   }
 }

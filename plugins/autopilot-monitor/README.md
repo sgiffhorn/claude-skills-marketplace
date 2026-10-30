@@ -17,7 +17,9 @@ Keine Konfiguration: Das Panel nimmt jede aktive Routine, die `Autopilot <name>:
 
 ## Bedienung
 
-`/autopilot-panel` blendet das Panel ein oder aus, ebenso das Schließen-Kreuz. Neue Sessions starten so, wie es zuletzt war. Ist es zu, fragt es nichts ab.
+`/autopilot-panel` blendet das Panel ein oder aus, ebenso das Schließen-Kreuz. Neue Sessions starten so, wie es zuletzt war.
+
+Greift ein Deckel (Worker-Tageslimit oder WIP), steht über dem Eingabefeld ein rotes Band, auch bei geschlossenem Panel. „Panel“ öffnet das Panel, „Ausblenden“ blendet das Band aus, bis sich die Zahlen ändern. Bei geschlossenem Panel fragt das Plugin alle 10 Minuten ab, sonst alle 2.
 
 ## Installation
 
