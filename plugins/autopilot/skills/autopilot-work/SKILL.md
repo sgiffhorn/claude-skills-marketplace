@@ -65,7 +65,7 @@ PRs sind für Labels und Kommentare auch Issues: dieselben `issues/$P/…`-Pfade
 
 Jeder Text, den du schreibst, beginnt mit einem HTML-Kommentar. Kommentare ohne Marker stammen vom Menschen.
 
-- `<!-- autopilot:work-start -->` Lauf begonnen (zählt die Tagesläufe, außer bei verlorenem Rennen)
+- `<!-- autopilot:work-start -->` Lauf begonnen
 - `<!-- autopilot:gate-fail -->` Gate gescheitert
 - `<!-- autopilot:needs-human -->` Frage an den Menschen
 - `<!-- autopilot:work-done -->` Abgabe oder Nacharbeit fertig
@@ -80,18 +80,6 @@ Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, 
 Nichts gefunden: eine Zeile ausgeben, Ende, kein Schreibzugriff.
 
 **Deckel prüfen**, bevor du etwas schreibst:
-
-- Tagesläufe haben `deckel.worker_laeufe_pro_tag` erreicht: Ende. Gezählt werden `work-start`-Kommentare seit Tagesbeginn (nach `created_at`), aber keiner, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt: der hat das Rennen in Schritt 2 verloren und nichts gearbeitet. Mit `seiten` von oben:
-
-  ```
-  TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
-  seiten repos/$REPO/issues/comments -f since=$(date -u -d "$TAG 15 minutes ago" +%FT%TZ) | jq --arg tag "$TAG" '
-    [.[] | select(.body | startswith("<!-- autopilot:work-start -->"))] as $w
-    | [$w[] | . as $c | select(.created_at >= $tag)
-       | select(any($w[]; .issue_url == $c.issue_url and .id < $c.id
-           and ($c.created_at | fromdate) - (.created_at | fromdate) <= 900) | not)]
-    | length'
-  ```
 
 - Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip`; das Label bleibt bis zum Merge am Issue) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
 

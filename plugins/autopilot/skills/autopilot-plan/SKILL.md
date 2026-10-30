@@ -205,7 +205,7 @@ Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>
 - #pr Titel
 
 ### Heute
-Worker-Läufe x von <deckel.worker_laeufe_pro_tag>, Planer-Läufe y, WIP x von <deckel>
+Worker-Läufe x, Planer-Läufe y, WIP x von <deckel>
 
 ### Planer-Gedächtnis
 Sweep-Stand: <repo> <sha> <Datum>; <zweit-repo> <sha> <Datum>
