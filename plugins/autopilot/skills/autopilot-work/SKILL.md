@@ -104,12 +104,12 @@ Neuer Auftrag `#N`:
 
 1. `autopilot:wip` setzen, `autopilot:ready` nehmen.
 2. Kommentar `<!-- autopilot:work-start -->` mit Startzeit und Branch `claude/autopilot-N`.
-3. Kommentare des Issues neu lesen. Gibt es einen zweiten `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner, hat ein anderer Lauf gewonnen: Ende ohne weitere Änderung.
+3. Kommentare des Issues neu lesen. Gibt es einen zweiten `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner, hat ein anderer Lauf gewonnen: ohne weitere Änderung an diesem Issue zurück zu Schritt 1 (Auswahl und Deckel neu lesen, das Budget nicht noch einmal). Höchstens drei Versuche je Lauf, danach Ende. So verteilen sich gleichzeitig geweckte Läufe auf die freien Aufträge.
 
 Nacharbeit an PR `#P` zu Issue `#N`:
 
 1. Kommentar `<!-- autopilot:work-start -->` am Issue `#N` („Nacharbeit PR #P“). Labels bleiben, bis du fertig bist.
-2. Rennprüfung wie beim neuen Auftrag: Kommentare des Issues neu lesen; ein zweiter `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner heißt Ende ohne weitere Änderung.
+2. Rennprüfung wie beim neuen Auftrag: Kommentare des Issues neu lesen; ein zweiter `work-start` aus den letzten 15 Minuten mit kleinerer Kommentar-ID als deiner heißt zurück zu Schritt 1, mit denselben drei Versuchen.
 
 ## 3. Spec prüfen
 
