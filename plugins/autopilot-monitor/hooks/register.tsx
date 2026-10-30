@@ -96,9 +96,12 @@ async function gh($: EngineInterface, args: string[]): Promise<string> {
 // Werkzeug RemoteTrigger scheitert im Auto-Modus: ohne Anfrage des Modells
 // gibt der Klassifikator kein Urteil.
 const API = 'https://api.anthropic.com'
+// $.http.fetch legt die Header des Auth-Handles zuletzt darueber, darunter
+// anthropic-beta: oauth-2025-04-20. Unter gleichem Schluessel ginge die
+// Routine-Beta verloren (404); die andere Schreibweise haengt beide an.
 const API_HEADERS = {
   'anthropic-version': '2023-06-01',
-  'anthropic-beta': 'ccr-triggers-2026-01-30',
+  'Anthropic-Beta': 'ccr-triggers-2026-01-30',
 }
 
 // Ohne x-organization-uuid antwortet die Routine-API mit 404. Die Engine
