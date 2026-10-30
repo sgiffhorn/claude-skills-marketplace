@@ -101,10 +101,26 @@ const API_HEADERS = {
   'anthropic-beta': 'ccr-triggers-2026-01-30',
 }
 
+// Ohne x-organization-uuid antwortet die Routine-API mit 404. Die Engine
+// nennt die Organisation nur unter verwalteter Anmeldung, also aus der
+// Konfiguration von Claude Code lesen, wie es RemoteTrigger intern tut.
+let orgUuid: string | undefined
+
+async function organisation($: EngineInterface): Promise<string> {
+  if (orgUuid) return orgUuid
+  const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) || (await $.env.get('HOME'))
+  const konfig = JSON.parse(await $.fs.read(`${dir}/.claude.json`))
+  const uuid = konfig?.oauthAccount?.organizationUuid
+  if (!uuid) throw new Error('keine Organisation in .claude.json, mit /login anmelden')
+  orgUuid = uuid
+  return uuid
+}
+
 async function api($: EngineInterface, pfad: string): Promise<any> {
   const auth = await $.session.authorize()
   if (!auth) throw new Error('keine claude.ai-Anmeldung in dieser Session')
-  const r = await $.http.fetch(`${API}${pfad}`, { headers: API_HEADERS, auth: auth.handle })
+  const headers = { ...API_HEADERS, 'x-organization-uuid': await organisation($) }
+  const r = await $.http.fetch(`${API}${pfad}`, { headers, auth: auth.handle })
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${kurz(r.text, 160)}`)
   return JSON.parse(r.text)
 }
