@@ -10,7 +10,7 @@ name: autopilot-review
 #
 # Drei Jobs, damit das Modell selbst nichts schreiben kann:
 #   gate:   wartet auf CI_WORKFLOW fuer den Head-SHA (stoesst einen
-#           fehlenden oder abgebrochenen Lauf einmal neu an).
+#           fehlenden, abgebrochenen oder roten Lauf einmal neu an).
 #   review: Opus mit dem Skill autopilot-review und einem Token, der nur
 #           lesen darf. Ergebnis ist ein JSON-Urteil (merge, changes,
 #           needs-human, skip), kein Schreibzugriff.
@@ -82,6 +82,14 @@ jobs:
                 neu=1
               fi
             elif [ "$status" = completed ]; then
+              # Ein roter Lauf bekommt einen zweiten Versuch: auf
+              # self-hosted Runnern ist Rot oft Infrastruktur.
+              if [ "$conclusion" = failure ] && [ "$neu" = 0 ]; then
+                gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/rerun-failed-jobs"
+                neu=1
+                sleep 30
+                continue
+              fi
               case "$conclusion" in
                 success|failure)
                   echo "ci=$conclusion" >>"$GITHUB_OUTPUT"
@@ -170,11 +178,6 @@ jobs:
       REVIEW_RESULT: ${{ needs.review.result }}
       VERDICT: ${{ needs.review.outputs.verdict }}
     steps:
-      - uses: actions/checkout@v5
-        with:
-          sparse-checkout: .claude/autopilot.md
-          sparse-checkout-cone-mode: false
-
       - name: Urteil lesen
         id: v
         run: |
@@ -218,7 +221,12 @@ jobs:
           URTEIL_SHA: ${{ steps.v.outputs.sha }}
         run: |
           stop() { echo "Merge-Leitplanke: $1" | tee "$RUNNER_TEMP/grund.txt" >&2; exit 1; }
-          cfg=.claude/autopilot.md
+          # Ueber die API statt per Checkout: ein sparse Checkout bleibt im
+          # Workspace eines self-hosted Runners liegen und bricht dort den
+          # naechsten CI-Lauf.
+          cfg="$RUNNER_TEMP/autopilot.md"
+          gh api "repos/$GITHUB_REPOSITORY/contents/.claude/autopilot.md?ref=${{ github.event.repository.default_branch }}" \
+            -H 'Accept: application/vnd.github.raw' >"$cfg"
           stufe=$(sed -n 's/^stufe: *//p' "$cfg" | head -1)
           deckel=$(sed -n 's/^ *diff_zeilen: *//p' "$cfg" | head -1)
           [ "$stufe" = autonom ] || stop "stufe ist $stufe"
