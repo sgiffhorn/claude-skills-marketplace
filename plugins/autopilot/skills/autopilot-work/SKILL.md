@@ -80,7 +80,8 @@ Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, 
 
 1. Läufe des Workflows für den Head-SHA: `gh api -X GET repos/$REPO/actions/workflows/autopilot-review.yml/runs -f head_sha=<sha> -f per_page=20`. Läuft einer (`queued`, `in_progress`, `waiting`), nichts tun.
 2. Sonst hängt das Review, wenn der jüngste Lauf seit mehr als 15 Minuten fertig ist oder es keinen gibt und das jüngste `labeled`-Ereignis mit `autopilot:review` (`seiten repos/$REPO/issues/$P/events`) älter als 15 Minuten ist.
-3. Hängt es: stehen am PR schon zwei Kommentare `<!-- autopilot:review-neu -->` mit diesem SHA, Schritt 7 am PR („Review zweimal ohne Urteil“, mit Link auf den letzten Lauf). Sonst Kommentar `<!-- autopilot:review-neu -->` mit SHA und Lauf-Link, `autopilot:review` nehmen und wieder setzen; das Label-Ereignis startet das Review neu.
+3. Verdrängt oder gescheitert: Jobs des jüngsten Laufs lesen (`gh api repos/$REPO/actions/runs/<id>/jobs`). Hat der Job `gate` die `conclusion` `cancelled`, hat ein neueres Review sein wartendes Gate verdrängt; das ist kein Versuch: `autopilot:review` nehmen und wieder setzen, ohne Kommentar.
+4. Sonst (CI ohne Ergebnis, Review-Lauf gescheitert): stehen am PR schon zwei Kommentare `<!-- autopilot:review-neu -->` mit diesem SHA, Schritt 7 am PR („Review zweimal ohne Urteil“, mit Link auf den letzten Lauf). Sonst Kommentar `<!-- autopilot:review-neu -->` mit SHA und Lauf-Link, `autopilot:review` nehmen und wieder setzen; das Label-Ereignis startet das Review neu.
 
 Antwortet die Actions-API mit 403, eine Zeile ausgeben und diesen Schritt überspringen.
 
