@@ -69,6 +69,7 @@ Jeder Text, den eine Autopilot-Rolle schreibt, beginnt mit einem HTML-Kommentar.
 - `<!-- autopilot:work-start -->` Worker-Lauf begonnen
 - `<!-- autopilot:needs-human -->` Frage an den Menschen
 - `<!-- autopilot:review-round -->` Review-Runde
+- `<!-- autopilot:antwort -->` Antwort auf eine Frage des Menschen an einem Vorschlag oder Auftrag
 
 ## 1. Lagebild (nur lesen)
 
@@ -77,6 +78,7 @@ Sammle, ohne etwas zu schreiben:
 - **WIP:** offene Issues mit `autopilot:wip` (bleibt bis zum Merge am Issue, auch während Review und Nacharbeit). Deckel ist `deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`.
 - **Warteschlange:** offene Issues mit `autopilot:ready`, offene Issues mit `autopilot:proposed`.
 - **needs-human:** offene Issues und PRs mit `needs-human`. Hat eines einen Kommentar ohne Marker, der jünger ist als der letzte Marker-Kommentar, liegt eine Antwort vor.
+- **Fragen an Aufträgen:** offene Issues mit `autopilot:proposed` oder `autopilot:ready` (ohne `autopilot:wip`), deren jüngster Kommentar keinen Marker hat und eine Frage enthält (ein `?` oder beginnt mit `**Frage:**`). Kommentare, die mit `**Ergänzung:**` beginnen oder keine Frage enthalten, sind Ergänzungen und brauchen keine Antwort.
 - **Gemergt:** geschlossene PRs mit Head `claude/autopilot-*` und `merged_at` in den letzten 7 Tagen.
 - **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`.
 - **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue`: Sweep-Stand je Repo, Datum der letzten Inventur, letzter Bereich, Vorrat (geprüfte Kandidaten ohne Platz) und „bewertet, nicht übernommen“ mit Grund.
@@ -85,6 +87,17 @@ Sammle, ohne etwas zu schreiben:
 
 - Ein Issue mit `autopilot:wip`, dessen letzter `work-start`-Kommentar älter ist als `deckel.wip_timeout_stunden` und zu dem kein offener PR mit Head `claude/autopilot-<n>` existiert: Kommentar mit Marker `needs-human` („Worker-Lauf seit <Zeit> ohne Ergebnis“), `autopilot:wip` nehmen, `needs-human` setzen.
 - Sonst änderst du keine Labels an Arbeit, die schon läuft. Antworten an `needs-human`-Fällen setzt der Mensch selbst per Label um; du nennst sie nur im Journal.
+
+## 2b. Fragen beantworten
+
+Je Frage aus dem Lagebild, vor jeder Kandidatensuche und ohne Deckel:
+
+1. Spec, alle Kommentare und den Code dazu lesen; die Frage am Code beantworten, nicht aus dem Gedächtnis.
+2. Kommentar mit `<!-- autopilot:antwort -->`: die Antwort in wenigen Sätzen, mit Pfaden, wo sie helfen.
+3. Ändert die Antwort den Auftrag (Umfang, Akzeptanzkriterien, Klasse, Größe), zusätzlich einen Kommentar mit `<!-- autopilot:spec -->` mit der ganzen überarbeiteten Spec. Sie nimmt alle bisherigen Ergänzungen des Menschen auf, denn ältere Kommentare ohne Marker gelten danach nicht mehr. Wird daraus Klasse C, `autopilot:ready` oder `autopilot:proposed` nehmen, `needs-human` setzen und das in der Antwort sagen.
+4. Lässt sich die Frage nur vom Menschen entscheiden, sagt die Antwort das und nennt die Optionen in einem Satz; die Spec bleibt.
+
+Im Journal unter „Vorschläge zur Freigabe“ bekommt ein so beantwortetes Issue den Zusatz „Frage beantwortet“.
 
 ## 3. Platz für neue Aufträge
 
@@ -195,6 +208,6 @@ Bewertet, nicht übernommen: #n (Grund), <Pfad> § <Abschnitt> (Grund), …
 
 Der Vorrat führt höchstens 30 Einträge, „bewertet, nicht übernommen“ höchstens 150 (ältere fallen vorne heraus). Der ganze Text bleibt unter 60 000 Zeichen; sonst zuerst die ältesten Einträge von „bewertet, nicht übernommen“ kürzen.
 
-**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
+**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, beantwortete Fragen mit Nummer, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“
 
 Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.
