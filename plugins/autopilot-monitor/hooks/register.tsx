@@ -12,6 +12,7 @@ const GH = ['gh', '/usr/local/bin/gh', '/opt/homebrew/bin/gh']
 const SUCHE_ALLE_MS = 30 * 60 * 1000
 const REVIEWER_WORKFLOW = 'autopilot-review.yml'
 const NACHSCHUB_VORGABE = 3
+const IDEEN_VORGABE = 30
 const ALLE_LAEUFE = 'https://claude.ai/code/routines'
 
 // Tag wechseln, sobald sich die Felder von Stand aendern
@@ -180,7 +181,7 @@ export type TriggerRoh = {
 }
 
 // Reihenfolge im Panel
-const ROLLEN = ['Planer', 'Worker', 'Reviewer', 'Chat']
+const ROLLEN = ['Planer', 'Scout', 'Worker', 'Reviewer', 'Chat']
 let gefunden: { at: number; gruppen: Gruppe[] } | undefined
 
 function veraltet(gruppen: Gruppe[], jetzt: number): boolean {
@@ -295,6 +296,9 @@ const GLOBAL = [
   'offene_vorschlaege',
   'pruefungen_pro_lauf',
   'nachschub_pro_tag',
+  'ideen_pro_lauf',
+  'offene_ideen',
+  'scout_dateien_pro_lauf',
   'budget_5h',
   'budget_woche_vorlauf',
 ]
@@ -408,6 +412,13 @@ async function leseAuftraege(
 // ---------- needs-human: echte Entscheidung oder mechanisch ----------
 
 const NH_MARKE = '<!-- autopilot:needs-human -->'
+const FRAGE_MARKE = '<!-- autopilot:entscheidung -->'
+
+// Die Frage des Planers an einem Issue mit autopilot:entscheidung, ohne Marker und "**Frage:**"
+export function frageKurz(body: string): string {
+  const zeile = body.split('\n').map(z => z.trim()).find(z => /^\**Frage:?\**/.test(z))
+  return zeile ? kurz(zeile.replace(/^\**Frage:?\**:?\s*/, ''), 160) : grundKurz(body)
+}
 
 // Dieselben technischen Gruende, die der Worker selbst abraeumt (autopilot-work)
 export function istMechanisch(grund: string): boolean {
@@ -430,6 +441,8 @@ type NhKnoten = {
   title: string
   url: string
   headRefName?: string
+  body?: string
+  labels?: { nodes: { name: string }[] }
   comments?: { nodes: { body: string; createdAt: string }[] }
 }
 
@@ -448,6 +461,22 @@ export function ordneFaelle(knoten: NhKnoten[]): Fall[] {
   }
   const faelle: Fall[] = []
   for (const { issue, pr } of je.values()) {
+    if (issue?.labels?.nodes.some(l => l.name === 'autopilot:entscheidung')) {
+      // Die Frage steht im juengsten Kommentar mit Marker, bei neuen Issues im Text
+      const fragen = [{ body: issue.body ?? '', createdAt: '' }, ...(issue.comments?.nodes ?? [])]
+        .filter(c => c.body.includes(FRAGE_MARKE))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      const frage = fragen.pop()?.body
+      faelle.push({
+        nummer: issue.number,
+        titel: issue.title,
+        url: issue.url,
+        grund: frage ? frageKurz(frage) : 'Keine Frage gefunden.',
+        mechanisch: false,
+        entscheidung: true,
+      })
+      continue
+    }
     const kommentare = [...(issue?.comments?.nodes ?? []), ...(pr?.comments?.nodes ?? [])]
       .filter(c => c.body.includes(NH_MARKE))
       .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
@@ -519,12 +548,13 @@ export function zaehleNachschub(
   return { heute: zeiten.length, vollUm: zeiten.length >= deckel ? zeiten[deckel - 1] : undefined }
 }
 
-const UEBERSICHT = `query($nh:String!, $pr:String!, $prod:String!, $o:String!, $n:String!, $j:Int!, $mitJournal:Boolean!){
+const UEBERSICHT = `query($nh:String!, $pr:String!, $prod:String!, $ideen:String!, $o:String!, $n:String!, $j:Int!, $mitJournal:Boolean!){
  nh: search(query:$nh, type:ISSUE, first:50){ nodes{ __typename
-  ... on Issue{ number title url comments(last:20){nodes{body createdAt}} }
+  ... on Issue{ number title url body labels(first:20){nodes{name}} comments(last:20){nodes{body createdAt}} }
   ... on PullRequest{ number title url headRefName comments(last:20){nodes{body createdAt}} } } }
  merged: search(query:$pr, type:ISSUE, first:100){ nodes{ ... on PullRequest{ number title url headRefName mergedAt } } }
  prod: search(query:$prod, type:ISSUE, first:20){ nodes{ ... on Issue{ number title url state createdAt closedAt } } }
+ ideen: search(query:$ideen, type:ISSUE, first:1){ issueCount }
  repository(owner:$o, name:$n) @include(if:$mitJournal){ issue(number:$j){ url comments(last:100){ nodes{ body createdAt } } } } }`
 
 type Uebersicht = {
@@ -532,6 +562,7 @@ type Uebersicht = {
   digest: Digest
   journalUrl?: string
   nachschub?: { heute: number; vollUm?: number }
+  ideen: number
 }
 
 async function leseUebersicht(
@@ -549,9 +580,10 @@ async function leseUebersicht(
   const roh = await gh($, [
     'api', 'graphql',
     '-f', `query=${UEBERSICHT}`,
-    '-f', `nh=repo:${repo} is:open label:needs-human`,
+    '-f', `nh=repo:${repo} is:open label:needs-human,autopilot:entscheidung`,
     '-f', `pr=repo:${repo} is:pr is:merged merged:>=${ab}`,
     '-f', `prod=repo:${repo} is:issue label:prod-incident updated:>=${ab}`,
+    '-f', `ideen=repo:${repo} is:issue is:open label:autopilot:idee`,
     '-f', `o=${owner}`,
     '-f', `n=${name}`,
     '-F', `j=${journal ?? 0}`,
@@ -563,6 +595,7 @@ async function leseUebersicht(
     faelle: ordneFaelle(d.nh.nodes ?? []),
     digest: baueDigest(d.merged.nodes ?? [], d.prod.nodes ?? [], seit),
     journalUrl: issue?.url,
+    ideen: d.ideen?.issueCount ?? 0,
     nachschub: issue ? zaehleNachschub(issue.comments.nodes ?? [], tagesbeginn(jetzt), nachschubDeckel) : undefined,
   }
 }
@@ -791,7 +824,9 @@ async function leseRepo(
     sicht.journalUrl = u.journalUrl
     sicht.nachschubHeute = u.nachschub?.heute
     sicht.nachschubVollUm = u.nachschub?.vollUm
+    sicht.ideen = u.ideen
   }
+  sicht.ideenDeckel = k?.deckel.offene_ideen ?? IDEEN_VORGABE
   sicht.nachschubDeckel = k?.deckel.nachschub_pro_tag ?? NACHSCHUB_VORGABE
   if (z) {
     // wip zaehlt ueber alle Repos der Zentrale (summiereWip), wip_begleitet je Repo
@@ -812,7 +847,14 @@ export function summiereWip(sichten: RepoSicht[]): RepoSicht[] {
   for (const s of sichten) {
     if (s.zentrale) summe.set(s.zentrale, (summe.get(s.zentrale) ?? 0) + (s.wip ?? 0))
   }
-  return sichten.map(s => (s.zentrale ? { ...s, wipAlle: summe.get(s.zentrale) } : s))
+  // Offene Ideen zaehlen wie der Deckel offene_ideen ueber alle Repos der Zentrale
+  const ideen = new Map<string, number>()
+  for (const s of sichten) {
+    if (s.zentrale) ideen.set(s.zentrale, (ideen.get(s.zentrale) ?? 0) + (s.ideen ?? 0))
+  }
+  return sichten.map(s =>
+    s.zentrale ? { ...s, wipAlle: summe.get(s.zentrale), ideenAlle: ideen.get(s.zentrale) } : s,
+  )
 }
 
 // ---------- Auswertung fuer Panel und Band ----------
@@ -1146,6 +1188,11 @@ export const register: Register = on => {
           if (r.wip !== undefined && r.wipDeckel !== undefined) {
             bars.push({ name: r.zentrale ? 'WIP begleitet' : 'WIP', wert: r.wip, max: r.wipDeckel })
           }
+          const ideen = r.zentrale ? r.ideenAlle : r.ideen
+          if (ideen !== undefined && r.ideenDeckel !== undefined) {
+            const hier = r.zentrale && r.ideen !== undefined ? `, hier ${r.ideen}` : ''
+            bars.push({ name: r.zentrale ? 'Ideen alle Repos' : 'Ideen offen', wert: ideen, max: r.ideenDeckel, anzeige: `${ideen} von ${r.ideenDeckel}${hier}` })
+          }
           if (r.nachschubHeute !== undefined) {
             bars.push({ name: 'Nachschub heute', wert: r.nachschubHeute, max: r.nachschubDeckel })
           }
@@ -1188,7 +1235,7 @@ export const register: Register = on => {
                         </Link>
                         {f.pr && <Link href={f.pr.url} label={`PR #${f.pr.number}`} />}
                       </Box>
-                      <Text>{f.grund}</Text>
+                      <Text>{f.entscheidung ? `Frage: ${f.grund}` : f.grund}</Text>
                     </Box>
                   ))}
                   {selbst}

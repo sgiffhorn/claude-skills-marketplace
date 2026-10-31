@@ -4,6 +4,7 @@ import {
   baueDigest,
   budgetBalken,
   digestBeginn,
+  frageKurz,
   grundKurz,
   istMechanisch,
   kategorie,
@@ -173,4 +174,37 @@ test('Budget-Balken mit den Bremsschwellen des Workers', async () => {
   ], jetzt)
   expect(eng.map(x => x.warn)).toEqual([true, true])
   expect(budgetBalken(r, [], jetzt)).toEqual([])
+})
+
+test('eine offene Entscheidung braucht dich, mit der juengsten Frage des Planers', async () => {
+  const F = '<!-- autopilot:entscheidung -->'
+  expect(frageKurz(`${F}\n**Frage:** Darf das Etikett die Kundennummer tragen?\n**Optionen:** a) ja, b) nein.`)).toBe(
+    'Darf das Etikett die Kundennummer tragen?',
+  )
+  const faelle = ordneFaelle([
+    {
+      __typename: 'Issue',
+      number: 40,
+      title: 'Etikett mit Kundennummer',
+      url: `${R}/issues/40`,
+      body: `${F}\n**Frage:** Alte Frage?`,
+      labels: { nodes: [{ name: 'autopilot:entscheidung' }] },
+      comments: {
+        nodes: [
+          { body: `${F}\n**Frage:** Neue Frage nach der Antwort?`, createdAt: '2026-10-31T10:00:00Z' },
+          { body: 'Antwort ohne Marker', createdAt: '2026-10-31T11:00:00Z' },
+        ],
+      },
+    },
+  ])
+  expect(faelle).toEqual([
+    {
+      nummer: 40,
+      titel: 'Etikett mit Kundennummer',
+      url: `${R}/issues/40`,
+      grund: 'Neue Frage nach der Antwort?',
+      mechanisch: false,
+      entscheidung: true,
+    },
+  ])
 })

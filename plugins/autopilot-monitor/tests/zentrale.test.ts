@@ -63,11 +63,12 @@ test('die Zeile Zentrale im Prompt ordnet die Routine der Zentrale zu', async ()
   const gruppen = gruppiere([
     trigger('t3', 'Autopilot beispiel: Chat', ['beispiel/meta', 'beispiel/eins'], 'Zentrale: beispiel/meta'),
     trigger('t1', 'Autopilot beispiel: Planer', ['beispiel/eins', 'beispiel/meta'], 'Zentrale: beispiel/meta'),
+    trigger('t4', 'Autopilot beispiel: Scout', ['beispiel/meta', 'beispiel/eins'], 'Zentrale: beispiel/meta'),
     trigger('t9', 'Autopilot solo: Worker', ['beispiel/solo'], 'Arbeite die Warteschlange ab.'),
     { ...trigger('t8', 'Autopilot solo: Planer', ['beispiel/solo']), enabled: false },
   ])
   expect(gruppen.map(g => [g.quelle, g.zentrale, g.routinen.map(r => r.rolle)])).toEqual([
-    ['beispiel/meta', true, ['Planer', 'Chat']],
+    ['beispiel/meta', true, ['Planer', 'Scout', 'Chat']],
     ['beispiel/solo', false, ['Worker']],
   ])
 })
@@ -112,6 +113,13 @@ test('WIP zaehlt ueber alle Repos der Zentrale, wip_begleitet je Repo', async ()
     { ...basis, repo: 'beispiel/solo', wip: 1, wipDeckel: 2 },
   ])
   expect(sichten.map(s => s.wipAlle)).toEqual([4, 4, undefined])
+
+  const ideen = summiereWip([
+    { ...basis, repo: 'beispiel/zwei', zentrale: 'beispiel/meta', ideen: 7 },
+    { ...basis, repo: 'beispiel/eins', zentrale: 'beispiel/meta', ideen: 2 },
+    { ...basis, repo: 'beispiel/solo', ideen: 1 },
+  ])
+  expect(ideen.map(s => s.ideenAlle)).toEqual([9, 9, undefined])
   const jetzt = Date.parse('2026-10-31T10:00:00Z')
   expect(auffaellig(sichten[0]!, jetzt).map(h => h.titel)).toEqual(['WIP-Deckel erreicht: 4 von 4 über alle Repos'])
   expect(auffaellig(sichten[1]!, jetzt).map(h => h.titel)).toEqual([
