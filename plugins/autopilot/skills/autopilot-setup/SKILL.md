@@ -38,6 +38,7 @@ Zeige dem Nutzer in wenigen Zeilen, was fehlt und was du anlegen würdest, und h
 | `needs-human` | `b60205` | Automatik stoppt, Mensch entscheidet |
 | `autopilot:gross-ok` | `fbca04` | Mensch erlaubt einen PR über dem Diffdeckel |
 | `autopilot:nachschub` | `5319e7` | Autopilot: Warteschlange leer, startet den Planer außer der Reihe |
+| `autopilot:journal` | `bfdadc` | Autopilot: Journal-Issue, Kommentare wecken den Chat |
 
 ```
 gh api repos/<repo>/labels -f name='autopilot:ready' -f color=0e8a16 -f description='…'
@@ -56,7 +57,7 @@ Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>, noch kein Planer-Lauf.
 Der Planer ersetzt diesen Text bei jedem Lauf und hängt eine Zeile als Kommentar an. Freigaben per Label, Antworten per Kommentar am jeweiligen Issue.
 ```
 
-Anlegen per `gh api repos/<repo>/issues -f title=Autopilot-Journal -F body=@datei`, danach `gh issue pin <n> --repo <repo>`. Die Nummer merken.
+Anlegen per `gh api repos/<repo>/issues -f title=Autopilot-Journal -F body=@datei -f 'labels[]=autopilot:journal'`, danach `gh issue pin <n> --repo <repo>`. Die Nummer merken. Ein bestehendes Journal bekommt das Label nachträglich.
 
 ## 4. `.claude/autopilot.md`
 
@@ -86,4 +87,5 @@ Für die Routines gilt:
 - **Zweit-Repos:** Jedes Repo aus `zweit_repos` gehört zusätzlich in die `sources` der Planer-Routine (`session_context.sources`, je ein `git_repository`). Nur dann klont die Cloud es nach `/home/user/<name>` und der GitHub-Proxy lässt `gh api repos/<owner>/<name>/…` durch; ein Repo außerhalb der `sources` antwortet 403 („GitHub access to this repository is not enabled for this session“, gemessen 2026-10-30). Mit mehr als einer Quelle startet die Session in `/home/user` statt im Repo, und dessen `.claude/settings.json` (Hooks, `attribution`) greift dann nicht von selbst: der Planer-Prompt nennt `/home/user/<name>` als Arbeitsverzeichnis.
 - **Connectors:** Die API hängt beim `create` alle claude.ai-Connectors des Accounts an. Danach die Routine mit `clear_mcp_connections: true` aktualisieren; keine Rolle braucht einen.
 - **Label-Filter:** Den Filter eines GitHub-Auslösers verwirft die API still. Im Web-Dialog der Routine setzen: Feld `Labels`, „entspricht einem von“ (Worker: `autopilot:ready` an Issues, `autopilot:changes` an PRs; Planer: `autopilot:nachschub` an Issues).
+- **Chat:** Eine dritte Routine (Sonnet, Environment des Planers, nur das eigene Repo als Quelle, kein Zeitplan) befolgt `autopilot-chat`. Auslöser: `create_webhook_trigger` mit `hook_type: app`, `source: github`, `scope_id: <owner>/<repo>`, `events: ["issue_comment.created"]`, danach im Web-Dialog den Filter `Labels` auf `autopilot:journal`. So antwortet der Autopilot auf Kommentare im Journal, auch wenn der Rechner des Operators aus ist.
 - **Nachschub:** Die Planer-Routine bekommt neben dem Zeitplan einen GitHub-Auslöser „Issue beschriftet“, gefiltert auf `autopilot:nachschub`. Per API: `create_webhook_trigger` mit `hook_type: app`, `source: github`, `scope_id: <owner>/<repo>`, `events: ["issues.labeled"]` und der ID der Planer-Routine, danach den Filter im Web-Dialog. Ohne Filter weckt jedes Issue-Label den Planer; er endet dann zwar ohne Schreibzugriff, kostet aber je einen Lauf. Wie oft am Tag, regelt `deckel.nachschub_pro_tag`.
