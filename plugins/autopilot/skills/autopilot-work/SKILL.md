@@ -87,6 +87,28 @@ Antwortet die Actions-API mit 403, eine Zeile ausgeben und diesen Schritt übers
 
 **Mechanische `needs-human` abräumen** (nur bei `merge_weg: action`, gleich danach). Je offenem PR mit Head `claude/autopilot-*` und `needs-human`, dessen jüngster `<!-- autopilot:needs-human -->`-Kommentar vom Review-Workflow kommt und einen technischen Grund nennt („Review-Lauf ohne Urteil“, „kein Ergebnis“, „Review-Workflow gescheitert“ ohne „Merge-Leitplanke“, „nicht mergebar“), und nach dem kein Kommentar ohne Marker steht (keine Antwort des Menschen): wie Punkt 4 oben, also höchstens zwei `<!-- autopilot:review-neu -->` je SHA, dann `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Sind die zwei Versuche verbraucht, bleibt der Fall beim Menschen.
 
+Dieser Schritt ist Pflicht in jedem Lauf, auch wenn danach nichts ansteht. Die Kandidaten liefert dieses Skript; gib seine Ausgabe immer aus:
+
+```
+gh api -X GET repos/$REPO/pulls -f state=open -f per_page=100 \
+  | jq -c '.[]|select((.head.ref|startswith("claude/autopilot-")) and ([.labels[].name]|index("needs-human")))|{n:.number,sha:.head.sha,ref:.head.ref}' \
+  | while read -r pr; do
+      P=$(jq -r .n <<<"$pr"); SHA=$(jq -r .sha <<<"$pr")
+      gh api -X GET repos/$REPO/issues/$P/comments -f per_page=100 | jq -r --arg sha "$SHA" --argjson p "$P" '
+        (map(.body|startswith("<!-- autopilot:needs-human")) | rindex(true)) as $i
+        | if $i == null then empty else
+          .[$i] as $nh | .[$i+1:] as $danach
+          | if ($nh.user.login != "github-actions[bot]") then "#\($p): bleibt (Frage nicht vom Review)"
+            elif ($nh.body|test("Merge-Leitplanke")) then "#\($p): bleibt (Merge-Leitplanke)"
+            elif ($nh.body|test("ohne Urteil|kein Ergebnis|Review-Workflow gescheitert|nicht mergebar")|not) then "#\($p): bleibt (fachlicher Grund)"
+            elif ($danach|any(.body|startswith("<!-- autopilot:")|not)) then "#\($p): bleibt (Mensch hat geantwortet)"
+            elif ([.[]|select((.body|startswith("<!-- autopilot:review-neu")) and (.body|contains($sha)))]|length) >= 2 then "#\($p): bleibt (zwei Versuche verbraucht)"
+            else "#\($p): abräumen" end end'
+    done | sed 's/^/Selbstheilung /'; echo "Selbstheilung geprüft"
+```
+
+Jede Zeile „abräumen“ wie oben behandeln: Kommentar `<!-- autopilot:review-neu -->` mit SHA am PR, `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Erst danach weiter mit der Auswahl.
+
 1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
 
