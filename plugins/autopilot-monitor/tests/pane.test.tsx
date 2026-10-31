@@ -332,7 +332,11 @@ function mitFaellen() {
     ...eins,
     repo: 'beispiel/zwei',
     stufe: 'begleitet',
-    auftraege: [],
+    auftraege: [
+      { phase: 'freigegeben', issue: { number: 48, title: 'Beispielauftrag 48', url: `${Z}/issues/48` } },
+      { phase: 'Vorschlag', issue: { number: 49, title: 'Beispielauftrag 49', url: `${Z}/issues/49` } },
+    ],
+    routinen: STAND.repos[0].routinen.map(rt => ({ ...rt, triggerId: `trig_${rt.rolle.toLowerCase()}` })),
     faelle: [
       {
         nummer: 44,
@@ -436,5 +440,70 @@ test('auf Mobile bleiben die Knoepfe, ohne Eingabefeld', async ($, on) => {
   expect(await ui.find({ type: 'Button', key: 'frei-beispiel/repo#21' })).toBeTruthy()
   expect(await ui.find({ type: 'Button', key: 'option-beispiel/zwei#46-a' })).toBeTruthy()
   expect(await ui.find({ type: 'Input' })).toBeFalsy()
+  await ui.unmount()
+})
+
+const anmeldung = (on: Parameters<Parameters<typeof test>[1]>[1]) => {
+  const abrufe: { url: string; method?: string }[] = []
+  on('session.authorize', () => ({ value: { handle: 'h', kind: 'bearer' as const } }))
+  on('env.get', () => ({ value: '/home/beispiel' }))
+  on('fs.read', () => ({ value: JSON.stringify({ oauthAccount: { organizationUuid: 'org-1' } }) }))
+  on('http.fetch', (_$: unknown, e: { url: string; init?: { method?: string } }) => {
+    abrufe.push({ url: e.url, method: e.init?.method })
+    return { value: { status: 200, ok: true, headers: {}, text: '{}' } }
+  })
+  return abrufe
+}
+
+test('Bereit: zurueckstellen, verwerfen mit Rueckfrage, Worker jetzt starten', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(mitFaellen()))
+  const aufrufe = gestartet(on)
+  const abrufe = anmeldung(on)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'repo-beispiel/zwei' })
+  await ui.press({ key: 'zurueck-beispiel/zwei#48' })
+  expect(aufrufe.some(a => a.includes('DELETE') && a.includes('repos/beispiel/zwei/issues/48/labels/autopilot%3Aready'))).toBe(true)
+  expect(aufrufe.some(a => a.includes('repos/beispiel/zwei/issues/48/labels') && a.includes('labels[]=autopilot:proposed'))).toBe(true)
+
+  aufrufe.length = 0
+  await ui.press({ key: 'verwerfen-beispiel/zwei#49' })
+  expect(await ui.find({ type: 'Text', text: /^#49 als not planned schließen\?$/ })).toBeTruthy()
+  expect(aufrufe.length).toBe(0)
+  await ui.press({ key: 'ja-verwerfen-beispiel/zwei#49' })
+  expect(aufrufe.some(a => a.includes('PATCH') && a.includes('repos/beispiel/zwei/issues/49') && a.includes('state_reason=not_planned'))).toBe(true)
+  expect(aufrufe.some(a => a.includes('repos/beispiel/zwei/issues/49/comments'))).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /^#49 verworfen\.$/ })).toBeTruthy()
+
+  await ui.press({ key: 'worker-beispiel/zwei' })
+  expect(abrufe.some(a => a.url.endsWith('/v1/code/triggers/trig_worker/run') && a.method === 'POST')).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /^Worker gestartet\.$/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('Planer jetzt setzt das Nachschub-Label am Journal, solange der Deckel nicht erreicht ist', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  const voll = mitFaellen()
+  const frei = { ...voll, repos: voll.repos.map(r => ({ ...r, nachschubHeute: 1 })) }
+  on('state.get', zustand(frei))
+  const aufrufe = gestartet(on)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'planer-beispiel/meta' })
+  expect(aufrufe.some(a => a.includes('repos/beispiel/meta/issues/1/labels') && a.includes('labels[]=autopilot:nachschub'))).toBe(true)
+  await ui.unmount()
+})
+
+test('mit verbrauchtem Nachschub gibt es keinen Planer-Knopf', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(mitFaellen()))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Button', key: 'planer-beispiel/meta' })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^Nachschub für heute verbraucht$/ })).toBeTruthy()
   await ui.unmount()
 })
