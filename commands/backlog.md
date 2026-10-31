@@ -7,8 +7,8 @@ Zentraler Rückstand über **alle** Repos. Zwei Quellen:
 1. das Handoff-Verzeichnis (`$HANDOFF_DIR`, siehe unten), eine Datei pro offener Aufgabe,
    `<repo>__<slug>.md`;
 2. die Entscheidungen, die ein Autopilot auf GitHub für dich liegen lässt (Abschnitt
-   „Autopilot-Entscheidungen“ unten): Vorschläge `autopilot:proposed` und Fragen
-   `needs-human`.
+   „Autopilot-Entscheidungen“ unten): Vorschläge `autopilot:proposed`, Entscheidungen
+   `autopilot:entscheidung` und Fragen `needs-human`.
 
 **Der Index wird immer frisch aus Verzeichnis und GitHub gelesen, nie gespeichert.** Eine
 gepflegte Indexdatei driftet garantiert weg; Verzeichnis und Labels sind die einzige
@@ -27,6 +27,7 @@ darf nur einmal abgefragt werden. Worktrees unter `.claude/worktrees/` zählen n
 
 ```bash
 gh issue list -R <repo> --state open --label autopilot:proposed --json number,title,body,createdAt,url,comments
+gh issue list -R <repo> --state open --label autopilot:entscheidung --json number,title,body,url,comments
 gh issue list -R <repo> --state open --label needs-human --json number,title,url,updatedAt
 gh pr list    -R <repo> --state open --label needs-human --json number,title,url,updatedAt
 ```
@@ -45,6 +46,10 @@ eine eigene Gruppe.
   Dahinter der Stand des Gesprächs aus dem jüngsten Kommentar: ohne Marker und mit
   Frage (`?` oder `**Frage:**`) „Frage offen, Antwort im nächsten Planer-Lauf“; mit
   `<!-- autopilot:antwort -->` „Frage beantwortet“; ohne Marker und ohne Frage „ergänzt“.
+- Entscheidung: `g<n> 🙋 #<nr> <Titel>: Entscheidung:` mit der Frage aus der Zeile
+  `**Frage:**` des jüngsten Kommentars mit `<!-- autopilot:entscheidung -->` (bei neuen
+  Issues steht sie im Text). Gibt es danach einen Kommentar ohne Marker, dahinter
+  „Antwort liegt vor, der Planer arbeitet sie ein“.
 - Frage: `g<n> 🙋 #<nr> <Titel>: Frage des Autopilots` mit dem ersten Satz aus dem
   jüngsten Kommentar mit `<!-- autopilot:needs-human -->`; ohne solchen Kommentar
   „needs-human ohne Frage“. PRs mit `PR #<nr>`.
@@ -240,8 +245,8 @@ gh issue edit <nr> -R <repo> --remove-label autopilot:proposed --add-label autop
 ```
 
 Das Label startet den Worker des Repos sofort. Nur auf ausdrückliche Nummernwahl des
-Nutzers, nie gebündelt „alle“, und nie für `needs-human`-Zeilen: dort ist eine Antwort
-gefragt, kein Label. Danach je Nummer eine Zeile: freigegeben oder übersprungen.
+Nutzers, nie gebündelt „alle“, und nie für `needs-human`- oder Entscheidungs-Zeilen: dort
+ist eine Antwort gefragt, kein Label. Danach je Nummer eine Zeile: freigegeben oder übersprungen.
 
 ### `ergänzen g<n> <Text> [--frei]`
 Schreibt eine Ergänzung des Nutzers als Kommentar ins Issue, wörtlich, mit
@@ -256,9 +261,13 @@ Widerspruch gilt die Ergänzung. Mit `--frei` danach wie `freigeben`. Ohne `--fr
 der Vorschlag liegen. Trägt das Issue schon `autopilot:wip`, darauf hinweisen: der Worker
 sieht die Ergänzung erst bei der Nacharbeit.
 
+An einer Entscheidungs-Zeile ist der Text die Antwort auf die Frage: `**Antwort:**` statt
+`**Ergänzung:**` davor, kein `--frei`. Labels bleiben; der nächste Planer-Lauf arbeitet die
+Antwort ein (Spec und Label je Stufe, oder schließen).
+
 ### `fragen g<n> <Frage>`
-Beantwortet eine Frage des Nutzers zu einem Vorschlag **sofort in dieser Session**, statt
-auf den nächsten Planer-Lauf zu warten:
+Beantwortet eine Frage des Nutzers zu einem Vorschlag oder einer Entscheidung **sofort in
+dieser Session**, statt auf den nächsten Planer-Lauf zu warten:
 
 1. Spec und alle Kommentare des Issues lesen (`gh issue view <nr> -R <repo> --comments`).
 2. Am Code beantworten, im lokalen Klon nach `git fetch`, gelesen vom Default-Branch des
@@ -288,6 +297,7 @@ gh issue close <nr> -R <repo> --reason "not planned" --comment "Abgelehnt: <Grun
 ```
 
 Ohne Grund nur „Abgelehnt.“. Auch hier vorher prüfen, dass das Issue noch offen ist.
+An einer Entscheidungs-Zeile heißt das: nicht machen, das Issue ist damit erledigt.
 
 ### `done <slug>`
 `status: done` in die Datei schreiben **und** sie nach `$HANDOFF_DIR/done/` verschieben.

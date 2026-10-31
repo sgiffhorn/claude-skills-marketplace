@@ -20,7 +20,7 @@ export type Lauf = {
 // naechster: geplanter naechster Lauf (ms), wo die Routine einen Zeitplan hat
 export type Routine = { rolle: string; url?: string; laeufe: Lauf[]; naechster?: number; fehler?: string }
 
-// Ein offener needs-human-Fall; Issue und zugehoeriger PR sind ein Fall
+// Ein offener needs-human-Fall oder eine offene Entscheidung; Issue und zugehoeriger PR sind ein Fall
 export type Fall = {
   nummer: number
   titel: string
@@ -30,6 +30,8 @@ export type Fall = {
   grund: string
   // Technischer Grund, den der Worker selbst abraeumt
   mechanisch: boolean
+  // Issue mit autopilot:entscheidung; grund ist dann die Frage des Planers
+  entscheidung?: boolean
 }
 
 export type Digest = {
@@ -64,6 +66,10 @@ export type RepoSicht = {
   wipAlleDeckel?: number
   nachschubHeute?: number
   nachschubDeckel: number
+  // Offene Issues mit autopilot:idee hier, mit Zentrale summiert gegen den globalen deckel.offene_ideen
+  ideen?: number
+  ideenAlle?: number
+  ideenDeckel?: number
   // Bremsschwellen des Workers aus deckel.budget_5h und deckel.budget_woche_vorlauf
   budget5h?: number
   budgetVorlauf?: number
