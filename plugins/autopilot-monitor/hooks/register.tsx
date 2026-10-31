@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Auftrag, Digest, Fall, Phase, RepoSicht, Routine, Stand } from '../types'
+import type { Auftrag, Digest, Fall, Fenster, Phase, RepoSicht, Routine, Stand } from '../types'
 
 const PANE = 'autopilot-monitor'
 const TITEL = 'Autopilot'
@@ -22,6 +22,8 @@ const stand = atom(
 )
 // Kennung der Hinweise, die die Person im Band weggeklickt hat
 const bandWeg = atom({ plugin: 'autopilot-monitor', key: 'bandWeg' } as const, null as string | null)
+// Ratenfenster aus der eigenen Session, dasselbe Konto wie die Routinen
+const fenster = atom({ plugin: 'autopilot-monitor', key: 'fenster' } as const, [] as Fenster[])
 
 // ---------- Zeit in Europe/Berlin, ohne Intl ----------
 
@@ -704,6 +706,8 @@ async function leseRepo(
   sicht.nachschubDeckel = k?.deckel.nachschub_pro_tag ?? NACHSCHUB_VORGABE
   sicht.wipDeckel =
     k?.stufe === 'begleitet' ? (k.deckel.wip_begleitet ?? k.deckel.wip) : k?.deckel.wip
+  sicht.budget5h = k?.deckel.budget_5h
+  sicht.budgetVorlauf = k?.deckel.budget_woche_vorlauf
   return sicht
 }
 
@@ -801,6 +805,31 @@ function balken(wert: number, max: number): { voll: string; rest: string } {
   return { voll: '█'.repeat(n), rest: '░'.repeat(breite - n) }
 }
 
+const WOCHE_MS = 7 * 24 * H
+
+// Balken fuer 5h-Fenster und Woche mit denselben Schwellen wie die Bremse des Workers
+export function budgetBalken(
+  r: RepoSicht,
+  f: Fenster[],
+  jetzt: number,
+): { name: string; wert: number; max: number; anzeige: string; warn: boolean }[] {
+  const aus: { name: string; wert: number; max: number; anzeige: string; warn: boolean }[] = []
+  const h = f.find(x => x.kind === 'five_hour')
+  if (h) {
+    const grenze = r.budget5h ?? 70
+    aus.push({ name: '5h-Fenster', wert: h.percentUsed, max: 100, anzeige: `${Math.floor(h.percentUsed)} %`, warn: h.percentUsed >= grenze })
+  }
+  const w = f.find(x => x.kind === 'seven_day')
+  if (w) {
+    const reset = w.resetsAt ? Date.parse(w.resetsAt) : NaN
+    const soll = Number.isNaN(reset) ? undefined : Math.max(0, Math.min(100, 100 - ((reset - jetzt) / WOCHE_MS) * 100))
+    const warn = soll !== undefined && w.percentUsed > soll + (r.budgetVorlauf ?? 10)
+    const anzeige = `${Math.floor(w.percentUsed)} %` + (soll !== undefined ? ` (Soll ${Math.floor(soll)} %)` : '')
+    aus.push({ name: 'Woche', wert: w.percentUsed, max: 100, anzeige, warn })
+  }
+  return aus
+}
+
 function echte(r: RepoSicht): Fall[] {
   return r.faelle.filter(f => !f.mechanisch)
 }
@@ -814,6 +843,10 @@ function bandText(r: RepoSicht, jetzt: number): string[] {
 }
 
 let laeuft = false
+
+function merke(l: { kind: string; percentUsed: number; resetsAt?: string }): Fenster {
+  return { kind: l.kind, percentUsed: l.percentUsed, resetsAt: l.resetsAt }
+}
 
 async function istOffen($: EngineInterface): Promise<boolean> {
   return (await $.ui.panes()).some(pane => pane.id === PANE)
@@ -851,11 +884,17 @@ export const register: Register = on => {
     // Zuletzt gewaehlter Zustand gilt fuer jede neue Session
     if ((await $.store.get('offen')) !== false) void $.ui.open({ id: PANE, title: TITEL })
     void aktualisiere($)
+    void $.session.usage().then(u => update($, fenster, () => u.rateLimits.map(merke)))
     // Offenes Panel im Takt, sonst seltener fuer das Band
     $.clock.every(TAKT_MS, () => void (async () => {
       const alt = (await read($, stand)).at
       if ((await istOffen($)) || (await $.clock.now()) - alt >= BAND_TAKT_MS) await aktualisiere($)
     })())
+    return next(e)
+  })
+
+  on('session.measure', async ($, e, next) => {
+    if (e.changed.includes('rateLimits')) await update($, fenster, () => e.rateLimits.map(merke))
     return next(e)
   })
 
@@ -913,6 +952,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Link } = $.ui.resolve(e)
     const s = await read($, stand)
+    const f = await read($, fenster)
     const jetzt = await $.clock.now()
 
     const ueberschrift = (titel: string) => (
@@ -964,11 +1004,12 @@ export const register: Register = on => {
             </Box>
           )
 
-          const bars: { name: string; wert: number; max: number }[] = []
+          const bars: { name: string; wert: number; max: number; anzeige?: string; warn?: boolean }[] = []
           if (r.wip !== undefined && r.wipDeckel !== undefined) bars.push({ name: 'WIP', wert: r.wip, max: r.wipDeckel })
           if (r.nachschubHeute !== undefined) {
             bars.push({ name: 'Nachschub heute', wert: r.nachschubHeute, max: r.nachschubDeckel })
           }
+          bars.push(...budgetBalken(r, f, jetzt))
 
           return (
             <Box key={`repo-${r.repo}`} flexDirection="column" gap={1}>
@@ -1084,13 +1125,13 @@ export const register: Register = on => {
                   <Box flexDirection="row" columnGap={3} flexWrap="wrap">
                     {bars.map(b => {
                       const { voll, rest } = balken(b.wert, b.max)
-                      const ganz = b.wert >= b.max
+                      const ganz = b.warn ?? b.wert >= b.max
                       return (
                         <Box flexDirection="column" minWidth={24}>
                           <Box flexDirection="row" justifyContent="space-between" gap={1}>
                             <Text>{b.name}</Text>
                             <Text color={ganz ? 'warning' : undefined} dimColor={!ganz}>
-                              {b.wert} von {b.max}
+                              {b.anzeige ?? `${b.wert} von ${b.max}`}
                             </Text>
                           </Box>
                           <Text>

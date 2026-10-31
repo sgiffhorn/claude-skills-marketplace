@@ -57,15 +57,21 @@ export type RepoSicht = {
   wipDeckel?: number
   nachschubHeute?: number
   nachschubDeckel: number
+  // Bremsschwellen des Workers aus deckel.budget_5h und deckel.budget_woche_vorlauf
+  budget5h?: number
+  budgetVorlauf?: number
   // Wann heute der Nachschub-Deckel erreicht wurde (ms)
   nachschubVollUm?: number
   fehler: string[]
 }
 
+// Ratenfenster des Kontos (five_hour, seven_day); Cloud-Laeufe zehren vom selben Kontingent
+export type Fenster = { kind: string; percentUsed: number; resetsAt?: string }
+
 export type Stand = { at: number; repos: RepoSicht[]; isLoading: boolean; fehler?: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null }
+    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null; fenster: Fenster[] }
   }
 }
