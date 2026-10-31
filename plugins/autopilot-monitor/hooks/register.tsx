@@ -191,7 +191,8 @@ function veraltet(gruppen: Gruppe[], jetzt: number): boolean {
 
 export function zentraleAusPrompt(inhalt?: Inhalt): string | undefined {
   const text = typeof inhalt === 'string' ? inhalt : (inhalt ?? []).map(b => b.text ?? '').join('\n')
-  return text.match(/^[\s*>-]*Zentrale:\**\s*`?([\w-]+\/[\w.-]*[\w-])/m)?.[1]
+  // Die Routine-Prompts nennen die Zentrale mitten im ersten Satz, nicht am Zeilenanfang
+  return text.match(/(?:^|[\s.(*>-])Zentrale:\**\s*`?([\w-]+\/[\w.-]*[\w-])/m)?.[1]
 }
 
 export function gruppiere(trigger: TriggerRoh[]): Gruppe[] {
