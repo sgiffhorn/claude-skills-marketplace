@@ -8,12 +8,15 @@ Je Repo, von oben nach unten:
 - **Braucht dich:** offene Issues und PRs mit `needs-human`, Issue und PR als ein Fall, Grund ist der erste Satz des jüngsten `<!-- autopilot:needs-human -->`-Kommentars. Technische Gründe, die der Worker selbst abräumt („Review-Lauf ohne Urteil“, „kein Ergebnis“, „Review-Workflow gescheitert“ ohne „Merge-Leitplanke“, „nicht mergebar“), stehen nur grau als „Repariert sich selbst“. Link zum Journal-Issue (`journal_issue`).
 - **Seit gestern 09:00:** gemergte PRs mit Head `claude/autopilot-*`, nach Titel in Features, Tests und toter Code, Doku; Änderungen am Autopiloten selbst (Titel beginnt mit „autopilot“) getrennt. Bis zu fünf Feature-Titel, dazu Issues mit `prod-incident` im Fenster.
 - **Auffällig:** Worker ohne Arbeit bei leerer Warteschlange und verbrauchtem Nachschub, Planer-Läufe der letzten 24 h ohne Wirkung (fehlender Label-Filter), WIP-Deckel erreicht, freigegebene Issues seit mehr als 30 Minuten nicht in Arbeit.
-- **Deckel und Budget:** WIP (offene Issues mit `autopilot:wip`) gegen `deckel.wip`, Nachschub heute (Journal-Laufzeilen mit „Nachschub“) gegen `deckel.nachschub_pro_tag`.
+- **Deckel und Budget:** WIP (offene Issues mit `autopilot:wip`) gegen `deckel.wip`, Nachschub heute (Journal-Laufzeilen mit „Nachschub“) gegen `deckel.nachschub_pro_tag`. Mit Zentrale zählt `WIP alle Repos` die Summe über alle Repos der Zentrale gegen ihren `deckel.wip` (dazu der Wert des Repos), in Stufe `begleitet` zusätzlich `WIP begleitet` gegen `deckel.wip_begleitet` des Repos.
 - **Rollen:** Planer, Worker, Reviewer (Routine oder Action `autopilot-review.yml`) und Chat mit letztem Lauf, Ergebnis in Kurzform und nächstem geplanten Lauf.
 
 ## Welche Repos
 
-Keine Konfiguration: Das Panel nimmt jede aktive Routine, die `Autopilot <name>: Planer`, `…: Worker`, `…: Reviewer` oder `…: Chat` heißt, und das Repo ihrer ersten Quelle. Deckel und Stufe liest es aus der `.claude/autopilot.md` dieses Repos.
+Keine Konfiguration: Das Panel nimmt jede aktive Routine, die `Autopilot <name>: Planer`, `…: Worker`, `…: Reviewer` oder `…: Chat` heißt.
+
+- **Mit Zentrale:** Nennt der Prompt der Routine eine Zeile `Zentrale: <owner>/<name>`, sind die Repos die aus `repos:` in der `.claude/autopilot.md` der Zentrale, in deren Reihenfolge, jedes mit allen Routinen der Zentrale. Die Zentrale selbst erscheint nur, wenn sie in `repos:` steht. Stufe und repo-eigene Deckel kommen aus der `.claude/autopilot.md` des Repos, ein fehlender Deckel fällt auf den Wert der Zentrale zurück. Journal (`journal_issue`, im Repo der Zentrale) und die globalen Deckel (`wip`, `nachschub_pro_tag`, `budget_5h`, `budget_woche_vorlauf` und die des Planers) kommen nur aus der Zentrale.
+- **Ohne Zentrale:** das Repo der ersten Quelle; Deckel, Stufe und Journal aus dessen `.claude/autopilot.md`.
 
 ## Voraussetzungen
 

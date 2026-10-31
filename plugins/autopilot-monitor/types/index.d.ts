@@ -47,14 +47,21 @@ export type Digest = {
 
 export type RepoSicht = {
   repo: string
+  // Repo der Zentrale, wenn die Routinen eine nennen; sonst Ein-Repo-Modus
+  zentrale?: string
   stufe?: string
   auftraege: Auftrag[]
   routinen: Routine[]
   faelle: Fall[]
   digest?: Digest
   journalUrl?: string
+  // Offene Issues mit autopilot:wip in diesem Repo; mit Zentrale ist wipDeckel
+  // nur deckel.wip_begleitet in Stufe begleitet
   wip?: number
   wipDeckel?: number
+  // Mit Zentrale: WIP ueber alle ihre Repos gegen den globalen deckel.wip
+  wipAlle?: number
+  wipAlleDeckel?: number
   nachschubHeute?: number
   nachschubDeckel: number
   // Bremsschwellen des Workers aus deckel.budget_5h und deckel.budget_woche_vorlauf

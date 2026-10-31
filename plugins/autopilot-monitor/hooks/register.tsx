@@ -18,7 +18,7 @@ const ALLE_LAEUFE = 'https://claude.ai/code/routines'
 const stand = atom(
   { plugin: 'autopilot-monitor', key: 'stand' } as const,
   { at: 0, repos: [], isLoading: true } as Stand,
-  { shape: 'stand-2' },
+  { shape: 'stand-3' },
 )
 // Kennung der Hinweise, die die Person im Band weggeklickt hat
 const bandWeg = atom({ plugin: 'autopilot-monitor', key: 'bandWeg' } as const, null as string | null)
@@ -151,66 +151,123 @@ async function api($: EngineInterface, pfad: string): Promise<any> {
 
 // ---------- Repos aus den Routinen ----------
 
-// Ein Repo gehoert dazu, sobald eine aktive Routine "Autopilot <name>: Planer",
-// "...: Worker", "...: Reviewer" oder "...: Chat" heisst; das Repo ist ihre erste Quelle.
-type RepoEintrag = { repo: string; routinen: { rolle: string; triggerId: string; naechster?: number }[] }
+// Eine Routine gehoert dazu, sobald sie aktiv ist und "Autopilot <name>: Planer",
+// "...: Worker", "...: Reviewer" oder "...: Chat" heisst. Nennt ihr Prompt eine Zeile
+// "Zentrale: <owner>/<name>", gehoert sie zur Zentrale, deren repos: die Repos sind;
+// sonst ist das Repo ihre erste Quelle (Ein-Repo-Modus).
+type RoutineEintrag = { rolle: string; triggerId: string; naechster?: number }
+export type Gruppe = { quelle: string; zentrale: boolean; routinen: RoutineEintrag[] }
+type RepoEintrag = {
+  repo: string
+  routinen: RoutineEintrag[]
+  zentrale?: { repo: string; konfig: Konfig }
+  fehler?: string
+}
 
-type TriggerRoh = {
+type Inhalt = string | { type: string; text?: string }[]
+
+export type TriggerRoh = {
   id: string
   name?: string
   enabled?: boolean
   next_run_at?: string | null
-  job_config?: { ccr?: { session_context?: { sources?: { git_repository?: { url?: string } }[] } } }
+  job_config?: {
+    ccr?: {
+      session_context?: { sources?: { git_repository?: { url?: string } }[] }
+      events?: { data?: { message?: { content?: Inhalt } } }[]
+    }
+  }
 }
 
 // Reihenfolge im Panel
 const ROLLEN = ['Planer', 'Worker', 'Reviewer', 'Chat']
-let gefunden: { at: number; repos: RepoEintrag[] } | undefined
+let gefunden: { at: number; gruppen: Gruppe[] } | undefined
 
-function veraltet(repos: RepoEintrag[], jetzt: number): boolean {
+function veraltet(gruppen: Gruppe[], jetzt: number): boolean {
   // Ein vergangener naechster Lauf heisst: die Routine lief, die Zeit ist neu zu lesen
-  return repos.some(r => r.routinen.some(x => x.naechster !== undefined && x.naechster <= jetzt))
+  return gruppen.some(g => g.routinen.some(x => x.naechster !== undefined && x.naechster <= jetzt))
 }
 
-async function findeRepos($: EngineInterface, jetzt: number): Promise<RepoEintrag[]> {
-  if (gefunden && jetzt - gefunden.at < SUCHE_ALLE_MS && !veraltet(gefunden.repos, jetzt)) {
-    return gefunden.repos
+export function zentraleAusPrompt(inhalt?: Inhalt): string | undefined {
+  const text = typeof inhalt === 'string' ? inhalt : (inhalt ?? []).map(b => b.text ?? '').join('\n')
+  return text.match(/^[\s*>-]*Zentrale:\**\s*`?([\w-]+\/[\w.-]*[\w-])/m)?.[1]
+}
+
+export function gruppiere(trigger: TriggerRoh[]): Gruppe[] {
+  const je = new Map<string, Gruppe>()
+  for (const t of trigger) {
+    const rolle = t.name?.match(/^Autopilot .+: (\w+)$/)?.[1]
+    if (!t.enabled || !rolle || !ROLLEN.includes(rolle)) continue
+    const ccr = t.job_config?.ccr
+    const zentrale = zentraleAusPrompt(ccr?.events?.[0]?.data?.message?.content)
+    const url = ccr?.session_context?.sources?.[0]?.git_repository?.url ?? ''
+    const quelle = zentrale ?? url.match(/github\.com\/([^/]+\/[^/.]+)/)?.[1]
+    if (!quelle) continue
+    const schluessel = `${zentrale ? 'z' : 'r'}:${quelle}`
+    const gruppe = je.get(schluessel) ?? { quelle, zentrale: !!zentrale, routinen: [] }
+    const naechster = t.next_run_at ? Date.parse(t.next_run_at) : NaN
+    gruppe.routinen.push({ rolle, triggerId: t.id, naechster: Number.isNaN(naechster) ? undefined : naechster })
+    je.set(schluessel, gruppe)
   }
+  for (const g of je.values()) g.routinen.sort((a, b) => ROLLEN.indexOf(a.rolle) - ROLLEN.indexOf(b.rolle))
+  return [...je.values()].sort((a, b) => a.quelle.localeCompare(b.quelle))
+}
+
+// Zentralen auf ihre Repos verteilen, in der Reihenfolge von repos:. Fehlt die
+// Datei der Zentrale (Wert ist dann der Fehlertext), steht die Zentrale selbst da.
+export function verteile(gruppen: Gruppe[], zentralen: Map<string, Konfig | string>): RepoEintrag[] {
   const je = new Map<string, RepoEintrag>()
+  const dazu = (e: RepoEintrag) => {
+    const alt = je.get(e.repo)
+    if (!alt) return void je.set(e.repo, e)
+    for (const r of e.routinen) if (!alt.routinen.some(x => x.triggerId === r.triggerId)) alt.routinen.push(r)
+  }
+  for (const g of gruppen) {
+    if (!g.zentrale) {
+      dazu({ repo: g.quelle, routinen: [...g.routinen] })
+      continue
+    }
+    const konfig = zentralen.get(g.quelle)
+    if (typeof konfig !== 'object' || !konfig.repos?.length) {
+      const fehler = typeof konfig === 'string' ? konfig : 'keine repos: in der Datei'
+      dazu({ repo: g.quelle, routinen: [...g.routinen], fehler: `Zentrale ${g.quelle}: ${fehler}` })
+      continue
+    }
+    for (const repo of konfig.repos) {
+      dazu({ repo, routinen: [...g.routinen], zentrale: { repo: g.quelle, konfig } })
+    }
+  }
+  return [...je.values()]
+}
+
+async function findeGruppen($: EngineInterface, jetzt: number): Promise<Gruppe[]> {
+  if (gefunden && jetzt - gefunden.at < SUCHE_ALLE_MS && !veraltet(gefunden.gruppen, jetzt)) {
+    return gefunden.gruppen
+  }
+  const alle: TriggerRoh[] = []
   let cursor = ''
   for (let seite = 0; seite < 10; seite++) {
     const antwort = await api($, `/v1/code/triggers${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
-    for (const t of (antwort.data ?? []) as TriggerRoh[]) {
-      const rolle = t.name?.match(/^Autopilot .+: (\w+)$/)?.[1]
-      if (!t.enabled || !rolle || !ROLLEN.includes(rolle)) continue
-      const url = t.job_config?.ccr?.session_context?.sources?.[0]?.git_repository?.url ?? ''
-      const repo = url.match(/github\.com\/([^/]+\/[^/.]+)/)?.[1]
-      if (!repo) continue
-      const eintrag = je.get(repo) ?? { repo, routinen: [] }
-      const naechster = t.next_run_at ? Date.parse(t.next_run_at) : NaN
-      eintrag.routinen.push({ rolle, triggerId: t.id, naechster: Number.isNaN(naechster) ? undefined : naechster })
-      je.set(repo, eintrag)
-    }
+    alle.push(...((antwort.data ?? []) as TriggerRoh[]))
     cursor = antwort.next_cursor ?? ''
     if (!antwort.has_more || !cursor) break
   }
-  for (const e of je.values()) e.routinen.sort((a, b) => ROLLEN.indexOf(a.rolle) - ROLLEN.indexOf(b.rolle))
-  const repos = [...je.values()].sort((a, b) => a.repo.localeCompare(b.repo))
-  gefunden = { at: jetzt, repos }
-  return repos
+  const gruppen = gruppiere(alle)
+  gefunden = { at: jetzt, gruppen }
+  return gruppen
 }
 
 // ---------- Konfiguration aus .claude/autopilot.md ----------
 
-type Konfig = { stufe?: string; journal?: number; deckel: Record<string, number> }
+export type Konfig = { stufe?: string; journal?: number; repos?: string[]; deckel: Record<string, number> }
 
-function leseKonfig(md: string): Konfig {
+export function leseKonfig(md: string): Konfig {
   const kopf = md.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
   const konfig: Konfig = { deckel: {} }
   let block = ''
   for (const zeile of kopf.split('\n')) {
     if (/^\s*#/.test(zeile) || !zeile.trim()) continue
-    const oben = zeile.match(/^([a-z_]+):\s*(.*)$/)
+    const oben = zeile.match(/^([a-z0-9_]+):\s*(.*)$/)
     if (oben) {
       block = oben[1] ?? ''
       const wert = (oben[2] ?? '').trim()
@@ -218,10 +275,39 @@ function leseKonfig(md: string): Konfig {
       if (block === 'journal_issue' && Number(wert) > 0) konfig.journal = Number(wert)
       continue
     }
-    const innen = zeile.match(/^\s+([a-z_]+):\s*(\d+)\s*$/)
+    const eintrag = zeile.match(/^\s+-\s+["'`]?([\w-]+\/[\w.-]*[\w-])/)
+    if (eintrag?.[1] && block === 'repos') konfig.repos = [...(konfig.repos ?? []), eintrag[1]]
+    const innen = zeile.match(/^\s+([a-z0-9_]+):\s*(\d+)\s*$/)
     if (innen?.[1] && block === 'deckel') konfig.deckel[innen[1]] = Number(innen[2])
   }
   return konfig
+}
+
+async function leseKonfigVon($: EngineInterface, repo: string): Promise<Konfig> {
+  const md = await gh($, ['api', '-H', 'Accept: application/vnd.github.raw', `repos/${repo}/contents/.claude/autopilot.md`])
+  return leseKonfig(md)
+}
+
+// Nur aus der Zentrale, wie in autopilot-plan und autopilot-work
+const GLOBAL = [
+  'wip',
+  'neue_auftraege_pro_planerlauf',
+  'offene_vorschlaege',
+  'pruefungen_pro_lauf',
+  'nachschub_pro_tag',
+  'budget_5h',
+  'budget_woche_vorlauf',
+]
+
+// Stufe und repo-eigene Deckel aus der Repo-Datei, ein fehlender faellt auf die
+// Zentrale zurueck; Journal und globale Deckel nur aus der Zentrale
+export function fuehreZusammen(repo: Konfig | undefined, zentrale: Konfig): Konfig {
+  const eigene = Object.entries(repo?.deckel ?? {}).filter(([k]) => !GLOBAL.includes(k))
+  return {
+    stufe: repo?.stufe,
+    journal: zentrale.journal,
+    deckel: { ...zentrale.deckel, ...Object.fromEntries(eigene) },
+  }
 }
 
 // ---------- Auftraege aus Labels ----------
@@ -451,13 +537,15 @@ type Uebersicht = {
 async function leseUebersicht(
   $: EngineInterface,
   repo: string,
+  // Repo des Journals: die Zentrale, im Ein-Repo-Modus das Repo selbst
+  journalRepo: string,
   journal: number | undefined,
   nachschubDeckel: number,
   jetzt: number,
 ): Promise<Uebersicht> {
   const seit = digestBeginn(jetzt)
   const ab = new Date(seit).toISOString().replace(/\.\d+Z$/, 'Z')
-  const [owner, name] = repo.split('/')
+  const [owner, name] = journalRepo.split('/')
   const roh = await gh($, [
     'api', 'graphql',
     '-f', `query=${UEBERSICHT}`,
@@ -641,47 +729,48 @@ async function leseRepo(
   $: EngineInterface,
   eintrag: RepoEintrag,
   jetzt: number,
-  cache: Cache,
-  neu: Cache,
+  routineVon: (r: RoutineEintrag) => Promise<Routine>,
 ): Promise<RepoSicht> {
+  const z = eintrag.zentrale
   const sicht: RepoSicht = {
     repo: eintrag.repo,
+    zentrale: z?.repo,
     auftraege: [],
     routinen: [],
     faelle: [],
     nachschubDeckel: NACHSCHUB_VORGABE,
-    fehler: [],
+    fehler: eintrag.fehler ? [eintrag.fehler] : [],
   }
   const fehler = (was: string) => (err: unknown) => {
     sicht.fehler.push(`${was}: ${err instanceof Error ? err.message : String(err)}`)
   }
 
-  const konfig = gh($, [
-    'api',
-    '-H',
-    'Accept: application/vnd.github.raw',
-    `repos/${eintrag.repo}/contents/.claude/autopilot.md`,
-  ])
-    .then(md => leseKonfig(md))
+  const konfig = leseKonfigVon($, eintrag.repo)
     .catch(err => {
       fehler('autopilot.md')(err)
       return undefined
     })
+    .then(k => (z ? fuehreZusammen(k, z.konfig) : k))
   const auftraege = leseAuftraege($, eintrag.repo).catch(err => {
     fehler('Auftraege')(err)
     return undefined
   })
   const uebersicht = konfig.then(k =>
-    leseUebersicht($, eintrag.repo, k?.journal, k?.deckel.nachschub_pro_tag ?? NACHSCHUB_VORGABE, jetzt).catch(
-      err => {
-        fehler('Uebersicht')(err)
-        return undefined
-      },
-    ),
+    leseUebersicht(
+      $,
+      eintrag.repo,
+      z?.repo ?? eintrag.repo,
+      k?.journal,
+      k?.deckel.nachschub_pro_tag ?? NACHSCHUB_VORGABE,
+      jetzt,
+    ).catch(err => {
+      fehler('Uebersicht')(err)
+      return undefined
+    }),
   )
   const hatReviewerRoutine = eintrag.routinen.some(r => r.rolle === 'Reviewer')
   const routinen = Promise.all([
-    ...eintrag.routinen.map(r => leseRoutine($, r, jetzt, cache, neu)),
+    ...eintrag.routinen.map(routineVon),
     ...(hatReviewerRoutine ? [] : [leseReviewer($, eintrag.repo, REVIEWER_WORKFLOW)]),
   ]).then(liste =>
     liste
@@ -704,17 +793,36 @@ async function leseRepo(
     sicht.nachschubVollUm = u.nachschub?.vollUm
   }
   sicht.nachschubDeckel = k?.deckel.nachschub_pro_tag ?? NACHSCHUB_VORGABE
-  sicht.wipDeckel =
-    k?.stufe === 'begleitet' ? (k.deckel.wip_begleitet ?? k.deckel.wip) : k?.deckel.wip
+  if (z) {
+    // wip zaehlt ueber alle Repos der Zentrale (summiereWip), wip_begleitet je Repo
+    sicht.wipAlleDeckel = k?.deckel.wip
+    sicht.wipDeckel = k?.stufe === 'begleitet' ? k.deckel.wip_begleitet : undefined
+  } else {
+    sicht.wipDeckel =
+      k?.stufe === 'begleitet' ? (k.deckel.wip_begleitet ?? k.deckel.wip) : k?.deckel.wip
+  }
   sicht.budget5h = k?.deckel.budget_5h
   sicht.budgetVorlauf = k?.deckel.budget_woche_vorlauf
   return sicht
+}
+
+// WIP-Summe je Zentrale in jedes ihrer Repos; ein unlesbares Repo zaehlt nicht mit
+export function summiereWip(sichten: RepoSicht[]): RepoSicht[] {
+  const summe = new Map<string, number>()
+  for (const s of sichten) {
+    if (s.zentrale) summe.set(s.zentrale, (summe.get(s.zentrale) ?? 0) + (s.wip ?? 0))
+  }
+  return sichten.map(s => (s.zentrale ? { ...s, wipAlle: summe.get(s.zentrale) } : s))
 }
 
 // ---------- Auswertung fuer Panel und Band ----------
 
 function wipVoll(r: RepoSicht): boolean {
   return r.wip !== undefined && r.wipDeckel !== undefined && r.wip >= r.wipDeckel
+}
+
+function wipAlleVoll(r: RepoSicht): boolean {
+  return r.wipAlle !== undefined && r.wipAlleDeckel !== undefined && r.wipAlle >= r.wipAlleDeckel
 }
 
 function nachschubVoll(r: RepoSicht): boolean {
@@ -771,7 +879,13 @@ export function auffaellig(r: RepoSicht, jetzt: number): Hinweis[] {
     })
   }
 
-  if (wipVoll(r)) hinweise.push({ titel: `WIP-Deckel erreicht: ${r.wip} von ${r.wipDeckel}`, schwer: true })
+  if (wipAlleVoll(r)) {
+    hinweise.push({ titel: `WIP-Deckel erreicht: ${r.wipAlle} von ${r.wipAlleDeckel} über alle Repos`, schwer: true })
+  }
+  if (wipVoll(r)) {
+    const art = r.zentrale ? 'WIP-Deckel begleitet' : 'WIP-Deckel'
+    hinweise.push({ titel: `${art} erreicht: ${r.wip} von ${r.wipDeckel}`, schwer: true })
+  }
 
   const stau = bereit.filter(a => a.readySeit !== undefined && jetzt - a.readySeit > READY_STAU_MS)
   if (stau.length > 0) {
@@ -860,8 +974,28 @@ async function aktualisiere($: EngineInterface): Promise<void> {
     const jetzt = await $.clock.now()
     const cache = ((await $.store.get('laeufe')) ?? {}) as Cache
     const neu: Cache = {}
-    const eintraege = await findeRepos($, jetzt)
-    const repos = await Promise.all(eintraege.map(r => leseRepo($, r, jetzt, cache, neu)))
+    const gruppen = await findeGruppen($, jetzt)
+    // Die Datei der Zentrale in jedem Durchlauf neu, Deckel und repos: koennen sich aendern
+    const zentralen = new Map<string, Konfig | string>()
+    await Promise.all(
+      gruppen
+        .filter(g => g.zentrale)
+        .map(g =>
+          leseKonfigVon($, g.quelle).then(
+            k => void zentralen.set(g.quelle, k),
+            err => void zentralen.set(g.quelle, `autopilot.md: ${err instanceof Error ? err.message : String(err)}`),
+          ),
+        ),
+    )
+    // Die Routinen einer Zentrale stehen in jedem ihrer Repos, gelesen wird jede einmal
+    const memo = new Map<string, Promise<Routine>>()
+    const routineVon = (r: RoutineEintrag) => {
+      const p = memo.get(r.triggerId) ?? leseRoutine($, r, jetzt, cache, neu)
+      memo.set(r.triggerId, p)
+      return p
+    }
+    const eintraege = verteile(gruppen, zentralen)
+    const repos = summiereWip(await Promise.all(eintraege.map(r => leseRepo($, r, jetzt, routineVon))))
     await $.store.set('laeufe', neu)
     await update($, stand, () => ({ at: jetzt, repos, isLoading: false }))
   } catch (err) {
@@ -1005,7 +1139,13 @@ export const register: Register = on => {
           )
 
           const bars: { name: string; wert: number; max: number; anzeige?: string; warn?: boolean }[] = []
-          if (r.wip !== undefined && r.wipDeckel !== undefined) bars.push({ name: 'WIP', wert: r.wip, max: r.wipDeckel })
+          if (r.wipAlle !== undefined && r.wipAlleDeckel !== undefined) {
+            const hier = r.wip !== undefined ? `, hier ${r.wip}` : ''
+            bars.push({ name: 'WIP alle Repos', wert: r.wipAlle, max: r.wipAlleDeckel, anzeige: `${r.wipAlle} von ${r.wipAlleDeckel}${hier}` })
+          }
+          if (r.wip !== undefined && r.wipDeckel !== undefined) {
+            bars.push({ name: r.zentrale ? 'WIP begleitet' : 'WIP', wert: r.wip, max: r.wipDeckel })
+          }
           if (r.nachschubHeute !== undefined) {
             bars.push({ name: 'Nachschub heute', wert: r.nachschubHeute, max: r.nachschubDeckel })
           }
