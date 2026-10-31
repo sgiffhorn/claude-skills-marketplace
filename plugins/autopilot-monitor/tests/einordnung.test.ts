@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   baueDigest,
+  budgetBalken,
   digestBeginn,
   grundKurz,
   istMechanisch,
@@ -153,4 +154,23 @@ test('Worker ohne Arbeit und Planer ohne Wirkung am Ergebnistext', async () => {
   expect(ohneArbeit('#20, PR #30, Gate gruen.')).toBe(false)
   expect(ohneWirkung('[issues.labeled #9] Kein Nachschub-Lauf, Ende ohne Schreibzugriff.')).toBe(true)
   expect(ohneWirkung('Nachschub 1 von 3: zwei neue Auftraege.')).toBe(false)
+})
+
+test('Budget-Balken mit den Bremsschwellen des Workers', async () => {
+  const jetzt = Date.parse('2026-10-31T10:00:00Z')
+  // Reset in 6 Tagen: ein Siebtel der Woche vorbei, Soll 14 %
+  const reset = new Date(jetzt + 6 * 24 * 3600 * 1000).toISOString()
+  const r = { repo: 'beispiel/repo', auftraege: [], routinen: [], faelle: [], nachschubDeckel: 3, fehler: [] }
+  const b = budgetBalken(r, [
+    { kind: 'five_hour', percentUsed: 17 },
+    { kind: 'seven_day', percentUsed: 11, resetsAt: reset },
+  ], jetzt)
+  expect(b.map(x => x.anzeige)).toEqual(['17 %', '11 % (Soll 14 %)'])
+  expect(b.map(x => x.warn)).toEqual([false, false])
+  const eng = budgetBalken({ ...r, budget5h: 50 }, [
+    { kind: 'five_hour', percentUsed: 55 },
+    { kind: 'seven_day', percentUsed: 30, resetsAt: reset },
+  ], jetzt)
+  expect(eng.map(x => x.warn)).toEqual([true, true])
+  expect(budgetBalken(r, [], jetzt)).toEqual([])
 })
