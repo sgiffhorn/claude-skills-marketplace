@@ -57,6 +57,7 @@ const trigger = (id: string, name: string, quellen: string[], prompt?: string): 
 test('die Zeile Zentrale im Prompt ordnet die Routine der Zentrale zu', async () => {
   expect(zentraleAusPrompt('Rolle: Worker.\nZentrale: beispiel/meta\nSonst nichts.')).toBe('beispiel/meta')
   expect(zentraleAusPrompt([{ type: 'text', text: 'Zentrale: `beispiel/meta`.' }])).toBe('beispiel/meta')
+  expect(zentraleAusPrompt('Autopilot-Rolle autopilot-chat. Zentrale: hezo-cycling/hezo-meta. Arbeitsverzeichnis /home/user')).toBe('hezo-cycling/hezo-meta')
   expect(zentraleAusPrompt('Ohne Zentrale.')).toBeUndefined()
   expect(zentraleAusPrompt(undefined)).toBeUndefined()
 
