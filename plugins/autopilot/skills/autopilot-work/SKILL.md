@@ -107,7 +107,7 @@ gh api -X GET repos/$REPO/pulls -f state=open -f per_page=100 \
     done | sed 's/^/Selbstheilung /'; echo "Selbstheilung geprüft"
 ```
 
-Jede Zeile „abräumen“ wie oben behandeln: Kommentar `<!-- autopilot:review-neu -->` mit SHA am PR, `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Erst danach weiter mit der Auswahl.
+Die Ausgabe entscheidet, nicht du: jede Zeile „abräumen“ wird abgeräumt, ohne eigene Abwägung und ohne Push-Nachricht, auch bei einem Doppelauftrag oder einer Änderung, die schon auf dem Default-Branch ist. Das neue Review erkennt solche Fälle und schließt PR und Issue selbst (Urteil `schliessen`). Jede Zeile „abräumen“ so behandeln: Kommentar `<!-- autopilot:review-neu -->` mit SHA am PR, `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Erst danach weiter mit der Auswahl.
 
 1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
