@@ -110,7 +110,7 @@ const PANE = {
 } as const
 
 const zustand = (stand: unknown) => ($: unknown, e: { key: string }, next: (e: unknown) => unknown) =>
-  e.key === 'stand' ? { value: { value: { shape: 'stand-2', value: stand }, version: 1 } } : next(e)
+  e.key === 'stand' ? { value: { value: { shape: 'stand-3', value: stand }, version: 1 } } : next(e)
 
 test('das Panel zeigt die Abschnitte des Mockups auf jeder Oberflaeche', async ($, on) => {
   const uhr = mock.clock(on)
@@ -211,4 +211,22 @@ test('ohne echte Faelle und ohne Auffaelliges bleibt das Band leer', async ($, o
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Autopilot/ })).toBeFalsy()
   await ui.unmount()
+})
+
+test('mit Zentrale zeigt das Panel die WIP-Summe gegen den globalen Deckel', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  const zentral = {
+    ...STAND,
+    repos: [{ ...STAND.repos[0], zentrale: 'beispiel/meta', wip: 1, wipDeckel: undefined, wipAlle: 3, wipAlleDeckel: 4 }],
+  }
+  on('state.get', zustand(zentral))
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^WIP alle Repos$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^3 von 4, hier 1$/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /^WIP$/ })).toBeFalsy()
+    await ui.unmount()
+  }
 })
