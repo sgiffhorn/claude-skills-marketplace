@@ -2,8 +2,10 @@ import { expect, test } from 'claude-code/testing'
 
 import {
   baueDigest,
+  belegeAus,
   budgetBalken,
   digestBeginn,
+  frageAus,
   frageKurz,
   grundKurz,
   istMechanisch,
@@ -72,9 +74,10 @@ test('Issue und PR sind ein Fall, der juengste needs-human-Kommentar zaehlt', as
     pr: undefined,
     grund: 'Umbauen, warten oder verwerfen?',
     mechanisch: false,
+    frage: 'Umbauen, warten oder verwerfen?',
   })
   expect(faelle[1]?.nummer).toBe(22)
-  expect(faelle[1]?.pr).toEqual({ number: 31, url: `${R}/pull/31` })
+  expect(faelle[1]?.pr).toMatchObject({ number: 31, url: `${R}/pull/31`, zweig: 'claude/autopilot-22' })
   expect(faelle[1]?.mechanisch).toBe(true)
 })
 
@@ -205,8 +208,38 @@ test('eine offene Entscheidung braucht dich, mit der juengsten Frage des Planers
       grund: 'Neue Frage nach der Antwort?',
       mechanisch: false,
       entscheidung: true,
+      beantwortet: true,
     },
   ])
+})
+
+test('eine Entscheidung bringt Optionen und Stand mit, ohne Antwort ist sie offen', async () => {
+  const F = '<!-- autopilot:entscheidung -->'
+  const [fall] = ordneFaelle([
+    {
+      __typename: 'Issue',
+      number: 41,
+      title: 'Beispielentscheidung',
+      url: `${R}/issues/41`,
+      body: `${F}\n**Frage:** Welcher Weg?\n**Optionen:** a) Feld \`x\` übernehmen, b) Feld weglassen.\n**Quelle:** docs/a.md\n**Stand:** Das Feld gibt es nur im Export.`,
+      labels: { nodes: [{ name: 'autopilot:entscheidung' }] },
+      comments: { nodes: [{ body: '<!-- autopilot:journal -->\nLauf', createdAt: '2026-10-31T11:00:00Z' }] },
+    },
+  ])
+  expect(fall?.beantwortet).toBeUndefined()
+  expect(fall?.optionen).toEqual([
+    { kennung: 'a', text: 'Feld x übernehmen' },
+    { kennung: 'b', text: 'Feld weglassen' },
+  ])
+  expect(fall?.stand).toBe('Das Feld gibt es nur im Export.')
+})
+
+test('needs-human: Frage und nummerierte Befunde aus dem Kommentar', async () => {
+  const body = `${NH}\nRunde 3: zwei Befunde sind nicht behoben.\n\n1. \`a.ts:3\` prüft den Fall nicht.\n2. Test fehlt.\n\nSoll der Worker den Test nachziehen oder reicht die Prüfung?`
+  expect(frageAus(body)).toBe('Soll der Worker den Test nachziehen oder reicht die Prüfung?')
+  expect(belegeAus(body)).toEqual(['a.ts:3 prüft den Fall nicht.', 'Test fehlt.'])
+  expect(frageAus(`${NH}\n**Frage:** Welcher Weg?`)).toBe('Welcher Weg?')
+  expect(frageAus(`${NH}\nNur ein Befund.`)).toBeUndefined()
 })
 
 test('ein PR, den der Reviewer in Stufe begleitet freigibt, ist ein Merge-Fall', async () => {
@@ -228,6 +261,7 @@ test('ein PR, den der Reviewer in Stufe begleitet freigibt, ist ein Merge-Fall',
     },
   ])
   expect(fall?.merge).toBe(true)
-  expect(fall?.pr).toEqual({ number: 45, url: `${R}/pull/45` })
+  expect(fall?.pr).toMatchObject({ number: 45, url: `${R}/pull/45` })
+  expect(fall?.frage).toBeUndefined()
   expect(fall?.grund).toBe('Urteil: würde mergen.')
 })
