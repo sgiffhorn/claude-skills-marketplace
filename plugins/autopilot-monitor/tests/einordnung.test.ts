@@ -208,3 +208,26 @@ test('eine offene Entscheidung braucht dich, mit der juengsten Frage des Planers
     },
   ])
 })
+
+test('ein PR, den der Reviewer in Stufe begleitet freigibt, ist ein Merge-Fall', async () => {
+  const [fall] = ordneFaelle([
+    {
+      __typename: 'PullRequest',
+      number: 45,
+      title: 'Doku: Beispiel',
+      url: `${R}/pull/45`,
+      headRefName: 'claude/autopilot-44',
+      comments: { nodes: [{ body: `${NH}\nUrteil: würde mergen. CI grün.`, createdAt: '2026-10-30T12:00:00Z' }] },
+    },
+    {
+      __typename: 'Issue',
+      number: 44,
+      title: 'Doku: Beispiel',
+      url: `${R}/issues/44`,
+      comments: { nodes: [] },
+    },
+  ])
+  expect(fall?.merge).toBe(true)
+  expect(fall?.pr).toEqual({ number: 45, url: `${R}/pull/45` })
+  expect(fall?.grund).toBe('Urteil: würde mergen.')
+})

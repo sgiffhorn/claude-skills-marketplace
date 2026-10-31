@@ -5,7 +5,9 @@ import {
   fuehreZusammen,
   gruppiere,
   leseKonfig,
+  rollenVon,
   summiereWip,
+  verbuende,
   verteile,
   zentraleAusPrompt,
 } from '../hooks/register'
@@ -128,4 +130,29 @@ test('WIP zaehlt ueber alle Repos der Zentrale, wip_begleitet je Repo', async ()
     'WIP-Deckel begleitet erreicht: 1 von 1',
   ])
   expect(auffaellig(sichten[2]!, jetzt)).toEqual([])
+})
+
+test('Rollen eines Verbunds: je Rolle eine, der Reviewer mit dem juengsten Lauf', async () => {
+  const lauf = (id: string, startedAt: number) => ({ id, url: '', startedAt, lastEventAt: startedAt, isRunning: false, ergebnis: 'ok' })
+  const sicht = (repo: string, reviewerAm: number) => ({
+    repo,
+    zentrale: 'beispiel/meta',
+    auftraege: [],
+    faelle: [],
+    nachschubDeckel: 3,
+    fehler: [],
+    routinen: [
+      { rolle: 'Worker', url: 'w', laeufe: [lauf('w1', 5)] },
+      { rolle: 'Reviewer', url: `${repo}/review`, laeufe: [lauf(`r-${repo}`, reviewerAm)] },
+      { rolle: 'Planer', url: 'p', laeufe: [lauf('p1', 1)] },
+    ],
+  })
+  const vs = verbuende([sicht('beispiel/eins', 10), sicht('beispiel/zwei', 20), { ...sicht('beispiel/solo', 1), zentrale: undefined }])
+  expect(vs.map(v => [v.quelle, v.zentrale, v.repos.length])).toEqual([
+    ['beispiel/meta', true, 2],
+    ['beispiel/solo', false, 1],
+  ])
+  const rollen = rollenVon(vs[0]!)
+  expect(rollen.map(r => r.rolle)).toEqual(['Planer', 'Worker', 'Reviewer'])
+  expect(rollen[2]?.url).toBe('beispiel/zwei/review')
 })

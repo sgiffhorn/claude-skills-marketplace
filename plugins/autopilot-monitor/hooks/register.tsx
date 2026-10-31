@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { Auftrag, Digest, Fall, Fenster, Phase, RepoSicht, Routine, Stand } from '../types'
 
@@ -25,6 +25,8 @@ const stand = atom(
 const bandWeg = atom({ plugin: 'autopilot-monitor', key: 'bandWeg' } as const, null as string | null)
 // Ratenfenster aus der eigenen Session, dasselbe Konto wie die Routinen
 const fenster = atom({ plugin: 'autopilot-monitor', key: 'fenster' } as const, [] as Fenster[])
+// Repo, dessen Zeile im Panel aufgeklappt ist
+const aufgeklappt = atom({ plugin: 'autopilot-monitor', key: 'aufgeklappt' } as const, null as string | null)
 
 // ---------- Zeit in Europe/Berlin, ohne Intl ----------
 
@@ -491,6 +493,7 @@ export function ordneFaelle(knoten: NhKnoten[]): Fall[] {
       pr: issue && pr ? { number: pr.number, url: pr.url } : undefined,
       grund: juengster ? grundKurz(juengster) : 'Kein needs-human-Kommentar gefunden.',
       mechanisch: istMechanisch(juengster),
+      ...(pr && /würde mergen/i.test(juengster) ? { merge: true } : {}),
     })
   }
   return faelle.sort((a, b) => a.nummer - b.nummer)
@@ -887,7 +890,8 @@ export function ohneWirkung(ergebnis: string): boolean {
   return /nichts geschrieben|kein Nachschub-Lauf/i.test(ergebnis)
 }
 
-export type Hinweis = { titel: string; text?: string; schwer: boolean }
+// global: gilt fuer alle Repos der Zentrale, im Panel nur einmal und ohne Repo davor
+export type Hinweis = { titel: string; text?: string; schwer: boolean; global?: boolean }
 
 export function auffaellig(r: RepoSicht, jetzt: number): Hinweis[] {
   const hinweise: Hinweis[] = []
@@ -908,6 +912,7 @@ export function auffaellig(r: RepoSicht, jetzt: number): Hinweis[] {
       titel: `Worker seit ${hm(seit, jetzt)} ohne Arbeit`,
       text: `Nachschub-Deckel${voll} erreicht${naechster}.`,
       schwer: true,
+      global: !!r.zentrale,
     })
   }
 
@@ -919,11 +924,12 @@ export function auffaellig(r: RepoSicht, jetzt: number): Hinweis[] {
       titel: `Planer ${leer}× ohne Wirkung geweckt`,
       text: 'Vermutlich fehlt der Label-Filter autopilot:nachschub am GitHub-Auslöser der Planer-Routine.',
       schwer: false,
+      global: !!r.zentrale,
     })
   }
 
   if (wipAlleVoll(r)) {
-    hinweise.push({ titel: `WIP-Deckel erreicht: ${r.wipAlle} von ${r.wipAlleDeckel} über alle Repos`, schwer: true })
+    hinweise.push({ titel: `WIP-Deckel erreicht: ${r.wipAlle} von ${r.wipAlleDeckel} über alle Repos`, schwer: true, global: true })
   }
   if (wipVoll(r)) {
     const art = r.zentrale ? 'WIP-Deckel begleitet' : 'WIP-Deckel'
@@ -938,6 +944,9 @@ export function auffaellig(r: RepoSicht, jetzt: number): Hinweis[] {
       schwer: true,
     })
   }
+  for (const p of r.digest?.prod ?? []) {
+    if (p.offen) hinweise.push({ titel: `Prod-Vorfall offen: #${p.nummer} ${kurz(p.titel, 60)}`, schwer: true })
+  }
   return hinweise
 }
 
@@ -945,15 +954,21 @@ function ohneAnlass(ergebnis: string): string {
   return ergebnis.replace(/^\[[^\]]*\]\s*/, '')
 }
 
-function rollenZeile(rt: Routine, jetzt: number): string {
+export function rollenZeile(rt: Routine, jetzt: number): string {
   const teile: string[] = []
   const l = rt.laeufe[0]
   if (rt.fehler) teile.push(`Fehler: ${kurz(rt.fehler, 60)}`)
   else if (!l) teile.push('noch kein Lauf')
   else if (l.isRunning) teile.push(`läuft seit ${hm(l.startedAt, jetzt)}`)
-  else teile.push(`zuletzt ${hm(l.startedAt, jetzt)}, ${kurz(ohneAnlass(l.ergebnis), 60)}`)
+  else teile.push(`zuletzt ${hm(l.startedAt, jetzt)}`)
   if (rt.naechster) teile.push(`nächster ${hm(rt.naechster, jetzt)}`)
   return teile.join(' · ')
+}
+
+// Fehler der Routine selbst oder des letzten Laufs
+export function rolleGestoert(rt: Routine): boolean {
+  const l = rt.laeufe[0]
+  return !!rt.fehler || (!!l && !l.isRunning && /^(?:Fehler \(|Umgebung: |Log nicht lesbar)/.test(ohneAnlass(l.ergebnis)))
 }
 
 function balken(wert: number, max: number): { voll: string; rest: string } {
@@ -997,6 +1012,100 @@ function bandText(r: RepoSicht, jetzt: number): string[] {
   if (n > 0) t.push(`${n} ${n === 1 ? 'braucht' : 'brauchen'} dich`)
   for (const hw of auffaellig(r, jetzt)) t.push(hw.titel)
   return t
+}
+
+// ---------- Panel: ueber alle Repos ----------
+
+// Repos einer Zentrale teilen Routinen, Journal und globale Deckel; ohne Zentrale
+// ist jedes Repo ein Verbund fuer sich
+export type Verbund = { quelle: string; zentrale: boolean; repos: RepoSicht[] }
+
+export function verbuende(repos: RepoSicht[]): Verbund[] {
+  const je = new Map<string, Verbund>()
+  for (const r of repos) {
+    const quelle = r.zentrale ?? r.repo
+    const v = je.get(quelle) ?? { quelle, zentrale: !!r.zentrale, repos: [] }
+    v.repos.push(r)
+    je.set(quelle, v)
+  }
+  return [...je.values()]
+}
+
+// Je Rolle eine Zeile; die Reviewer-Action liegt je Repo, es zaehlt der juengste Lauf
+export function rollenVon(v: Verbund): Routine[] {
+  const je = new Map<string, Routine>()
+  for (const r of v.repos) {
+    for (const rt of r.routinen) {
+      const alt = je.get(rt.rolle)
+      if (!alt || (rt.laeufe[0]?.startedAt ?? 0) > (alt.laeufe[0]?.startedAt ?? 0)) je.set(rt.rolle, rt)
+    }
+  }
+  return [...je.values()].sort((a, b) => ROLLEN.indexOf(a.rolle) - ROLLEN.indexOf(b.rolle))
+}
+
+export type Art = 'Merge' | 'Entscheidung' | 'needs-human'
+
+export function artVon(f: Fall): Art {
+  return f.entscheidung ? 'Entscheidung' : f.merge ? 'Merge' : 'needs-human'
+}
+
+export function kurzname(repo: string): string {
+  return repo.split('/').pop() ?? repo
+}
+
+export type Balken = { name: string; wert: number; max: number; anzeige?: string; warn?: boolean }
+
+// WIP und Ideen gegen die globalen Deckel, Nachschub aus dem Journal, Budget des Kontos
+export function verbundBalken(v: Verbund, f: Fenster[], jetzt: number): Balken[] {
+  const r = v.repos[0]
+  if (!r) return []
+  const bars: Balken[] = []
+  const wip = v.zentrale ? r.wipAlle : r.wip
+  const wipDeckel = v.zentrale ? r.wipAlleDeckel : r.wipDeckel
+  if (wip !== undefined && wipDeckel !== undefined) bars.push({ name: 'WIP', wert: wip, max: wipDeckel })
+  const ideen = v.zentrale ? r.ideenAlle : r.ideen
+  if (ideen !== undefined && r.ideenDeckel !== undefined) bars.push({ name: 'Ideen offen', wert: ideen, max: r.ideenDeckel })
+  bars.push(...budgetBalken(r, f, jetzt))
+  if (r.nachschubHeute !== undefined) {
+    bars.push({ name: 'Nachschub heute', wert: r.nachschubHeute, max: r.nachschubDeckel })
+  }
+  return bars
+}
+
+// Eine Zeile, wenn ein Repo aufgeklappt ist
+export function verbundKurz(bars: Balken[]): string {
+  const teil = (name: string, kurzName = name) => {
+    const b = bars.find(x => x.name === name)
+    return b ? `${kurzName} ${b.anzeige ?? `${b.wert} von ${b.max}`}` : undefined
+  }
+  return [teil('WIP'), teil('Woche'), teil('Ideen offen', 'Ideen')].filter(Boolean).join(' · ')
+}
+
+export function zaehle(r: RepoSicht): { inArbeit: number; bereit: number; vorschlaege: number } {
+  const n = (...phasen: Phase[]) => r.auftraege.filter(a => phasen.includes(a.phase)).length
+  return {
+    inArbeit: n('in Arbeit', 'im Review', 'Nacharbeit', 'wird gemergt'),
+    bereit: n('freigegeben'),
+    vorschlaege: n('Vorschlag'),
+  }
+}
+
+// Auffaelliges aller Repos als Saetze; Globales einmal, sonst mit Repo davor
+export function auffaelligAlle(repos: RepoSicht[], jetzt: number): { text: string; schwer: boolean }[] {
+  const aus = new Map<string, boolean>()
+  for (const r of repos) {
+    for (const hw of auffaellig(r, jetzt)) {
+      const vorne = repos.length > 1 && !hw.global ? `${kurzname(r.repo)}: ` : ''
+      const satz = `${vorne}${hw.titel}${hw.text ? `. ${hw.text}` : '.'}`
+      aus.set(satz, (aus.get(satz) ?? false) || hw.schwer)
+    }
+  }
+  return [...aus].map(([text, schwer]) => ({ text, schwer }))
+}
+
+function auftragTitel(a: Auftrag): string {
+  const n = a.issue?.number ?? a.pr?.number
+  return `#${n} ${a.issue?.title || a.pr?.title || ''}`.trim()
 }
 
 let laeuft = false
@@ -1130,7 +1239,11 @@ export const register: Register = on => {
     const { Box, Text, Button, Link } = $.ui.resolve(e)
     const s = await read($, stand)
     const f = await read($, fenster)
+    const offen = await read($, aufgeklappt)
     const jetzt = await $.clock.now()
+    const vs = verbuende(s.repos)
+    // Ein Repo, das es nicht mehr gibt, klappt nichts zu
+    const einRepoOffen = s.repos.some(r => r.repo === offen)
 
     const ueberschrift = (titel: string) => (
       <Text weight="semibold" size="caption" dimColor>
@@ -1138,230 +1251,314 @@ export const register: Register = on => {
       </Text>
     )
 
+    const quellen = vs.map(v => {
+      const nr = v.repos.find(r => r.journalUrl)?.journalUrl?.match(/\/issues\/(\d+)/)?.[1]
+      return `${v.zentrale ? 'Zentrale ' : ''}${kurzname(v.quelle)}${nr ? ` · Journal #${nr}` : ''}`
+    })
+    const unterzeile = [...quellen, s.at ? uhrzeit(s.at, jetzt) : '', !s.at ? 'Lade …' : s.isLoading ? 'lädt …' : '']
+      .filter(Boolean)
+      .join(' · ')
     const kopf = (
       <Box flexDirection="row" justifyContent="space-between" alignItems="center">
-        <Text dimColor>{!s.at ? 'Lade …' : s.isLoading ? 'lädt …' : ''}</Text>
+        <Box flexDirection="column">
+          <Text weight="bold">Autopilot</Text>
+          <Text dimColor>{unterzeile}</Text>
+        </Box>
         <Button key="neu" label="Aktualisieren" onPress={() => void aktualisiere($)} />
       </Box>
     )
+
+    const balkenGitter = (bars: Balken[]) => (
+      <Box flexDirection="row" columnGap={3} flexWrap="wrap">
+        {bars.map(b => {
+          const { voll, rest } = balken(b.wert, b.max)
+          const ganz = b.warn ?? b.wert >= b.max
+          return (
+            <Box key={`bar-${b.name}`} flexDirection="column" minWidth={24}>
+              <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                <Text color={ganz ? 'warning' : undefined}>{b.name}</Text>
+                <Text color={ganz ? 'warning' : undefined} dimColor={!ganz}>
+                  {b.anzeige ?? `${b.wert} von ${b.max}`}
+                </Text>
+              </Box>
+              <Text>
+                <Text color={ganz ? 'warning' : 'suggestion'}>{voll}</Text>
+                <Text dimColor>{rest}</Text>
+              </Text>
+            </Box>
+          )
+        })}
+      </Box>
+    )
+
+    // 1. Braucht dich ueber alle Repos
+    const faelle = s.repos.flatMap(r => echte(r).map(fall => ({ repo: r.repo, fall })))
+    const journalUrl = s.repos.find(r => r.journalUrl)?.journalUrl
+    const brauchtDich = einRepoOffen ? (
+      <Box flexDirection="row" justifyContent="space-between">
+        <Text color={faelle.length > 0 ? 'warning' : undefined} dimColor={faelle.length === 0} weight="semibold">
+          Braucht dich · {faelle.length}
+        </Text>
+        <Text dimColor>eingeklappt, weil ein Repo offen ist</Text>
+      </Box>
+    ) : (
+      <Box flexDirection="column">
+        <Box flexDirection="row" justifyContent="space-between">
+          <Text color={faelle.length > 0 ? 'warning' : undefined} weight="semibold" size="caption" dimColor={faelle.length === 0}>
+            BRAUCHT DICH · {faelle.length}
+          </Text>
+          {faelle.length > 0 && journalUrl && <Link href={journalUrl} label="Im Journal antworten" />}
+        </Box>
+        {faelle.length === 0 && <Text dimColor>nichts</Text>}
+        {faelle.map(({ repo, fall }) => {
+          const art = artVon(fall)
+          const nummer = art === 'Merge' ? (fall.pr?.number ?? fall.nummer) : fall.nummer
+          const url = art === 'Merge' ? (fall.pr?.url ?? fall.url) : fall.url
+          const satz = art === 'Merge' ? `${fall.titel}. Reviewer: ${fall.grund}` : fall.grund
+          return (
+            <Box key={`fall-${repo}-${fall.nummer}`} flexDirection="row" gap={1}>
+              <Box width={13} flexShrink={0}>
+                <Text color={art === 'Entscheidung' ? 'merged' : 'warning'} weight="semibold">
+                  {art}
+                </Text>
+              </Box>
+              <Box flexDirection="column" flexShrink={1}>
+                <Link href={url}>
+                  <Text weight="semibold">{`${kurzname(repo)}#${nummer}`}</Text>
+                </Link>
+                <Text dimColor>{kurz(satz, 140)}</Text>
+              </Box>
+            </Box>
+          )
+        })}
+      </Box>
+    )
+
+    // 2. Alle Repos: globale Deckel und Rollen je Verbund
+    const verbundBlock = (v: Verbund) => {
+      const bars = verbundBalken(v, f, jetzt)
+      const rollen = rollenVon(v)
+      const titel = v.zentrale ? 'Alle Repos' : 'Deckel und Rollen'
+      const name = vs.length > 1 ? `${titel} · ${kurzname(v.quelle)}` : titel
+      if (einRepoOffen) {
+        const gestoert = rollen.filter(rolleGestoert).length
+        const status =
+          gestoert > 0
+            ? `● ${gestoert} ${gestoert === 1 ? 'Rolle' : 'Rollen'} mit Fehler`
+            : `● ${rollen.length} ${rollen.length === 1 ? 'Rolle' : 'Rollen'} ok`
+        return (
+          <Box key={`verbund-${v.quelle}`} flexDirection="row" justifyContent="space-between" gap={1}>
+            <Text dimColor>{verbundKurz(bars) || name}</Text>
+            {rollen.length > 0 && <Text color={gestoert > 0 ? 'error' : 'success'}>{status}</Text>}
+          </Box>
+        )
+      }
+      return (
+        <Box key={`verbund-${v.quelle}`} flexDirection="column">
+          {ueberschrift(name)}
+          {bars.length > 0 && balkenGitter(bars)}
+          {rollen.map(rt => {
+            const gestoert = rolleGestoert(rt)
+            const l = rt.laeufe[0]
+            return (
+              <Box key={`rolle-${v.quelle}-${rt.rolle}`} flexDirection="row" justifyContent="space-between" gap={1}>
+                <Box flexDirection="row" gap={1}>
+                  <Text color={gestoert ? 'error' : l ? 'success' : undefined} dimColor={!gestoert && !l}>
+                    ●
+                  </Text>
+                  {rt.url ? <Link href={rt.url} label={rt.rolle} /> : <Text>{rt.rolle}</Text>}
+                </Box>
+                <Text color={gestoert ? 'error' : undefined} dimColor={!gestoert}>
+                  {rollenZeile(rt, jetzt)}
+                </Text>
+              </Box>
+            )
+          })}
+          {rollen.length > 0 && <Link href={ALLE_LAEUFE} label="Alle Läufe" />}
+        </Box>
+      )
+    }
+
+    // 3. Repos, je eine Zeile, eine davon aufgeklappt
+    const repoZeile = (r: RepoSicht) => {
+      const auf = r.repo === offen
+      const z = zaehle(r)
+      const warten = echte(r).length
+      const gemergt = r.digest ? `${r.digest.gemergt} gemergt` : '? gemergt'
+      const zeile2 = auf
+        ? [
+            r.stufe,
+            r.wip !== undefined
+              ? r.wipDeckel !== undefined
+                ? `WIP ${r.wip} von ${r.wipDeckel}${r.zentrale ? ' (begleitet)' : ''}`
+                : `WIP ${r.wip}`
+              : '',
+            r.stufe === 'begleitet' ? 'Reviewer mergt nicht' : '',
+            r.stufe === 'trockenlauf' ? 'nur Vorschläge' : '',
+          ]
+        : r.stufe === 'trockenlauf'
+          ? [r.stufe, 'nur Vorschläge']
+          : [r.stufe, `${z.inArbeit} in Arbeit`, `${z.bereit} bereit`, `${z.vorschlaege} Vorschläge`]
+      const kopfZeile = (
+        <Box flexDirection="column">
+          <Box flexDirection="row" justifyContent="space-between" gap={1}>
+            <Box flexDirection="row" gap={1}>
+              <Button
+                key={`repo-${r.repo}`}
+                plain
+                onPress={() => update($, aufgeklappt, alt => (alt === r.repo ? null : r.repo))}
+              >
+                {auf ? '⌄ ' : '› '}
+                <Text weight="bold">{kurzname(r.repo)}</Text>
+              </Button>
+              {warten > 0 && (
+                <Text color="warning" weight="semibold">
+                  {warten} wartet
+                </Text>
+              )}
+              {r.fehler.length > 0 && <Text color="error">Fehler</Text>}
+            </Box>
+            <Text dimColor>{gemergt}</Text>
+          </Box>
+          <Box paddingLeft={2}>
+            <Text dimColor>{zeile2.filter(Boolean).join(' · ')}</Text>
+          </Box>
+        </Box>
+      )
+      if (!auf) {
+        return (
+          <Box key={`zeile-${r.repo}`} flexDirection="column" borderStyle="round" borderColor={warten > 0 ? 'warning' : 'subtle'} paddingX={1}>
+            {kopfZeile}
+          </Box>
+        )
+      }
+
+      const inArbeit = r.auftraege.filter(a => ['in Arbeit', 'im Review', 'Nacharbeit', 'wird gemergt'].includes(a.phase))
+      const bereit = r.auftraege.filter(a => a.phase === 'freigegeben')
+      const mechanisch = r.faelle.filter(x => x.mechanisch)
+      const worker = rolle(r, 'Worker')
+      const d = r.digest
+      const abschnitt = (titel: string, inhalt: RenderChildren[]) =>
+        inhalt.length > 0 && (
+          <Box flexDirection="column">
+            {ueberschrift(titel)}
+            {inhalt}
+          </Box>
+        )
+      const reviewer = rolle(r, 'Reviewer')?.url ?? `https://github.com/${r.repo}/actions/workflows/${REVIEWER_WORKFLOW}`
+      return (
+        <Box key={`zeile-${r.repo}`} flexDirection="column" borderStyle="round" borderColor={warten > 0 ? 'warning' : 'suggestion'} paddingX={1} gap={1}>
+          {kopfZeile}
+          <Box flexDirection="column" paddingLeft={2} gap={1}>
+            {abschnitt(
+              'Wartet auf dich',
+              echte(r).map(fall => {
+                const art = artVon(fall)
+                return (
+                  <Box key={`warte-${fall.nummer}`} flexDirection="row" justifyContent="space-between" gap={1}>
+                    <Link href={art === 'Merge' ? (fall.pr?.url ?? fall.url) : fall.url} label={kurz(`#${fall.nummer} ${fall.titel}`, 60)} />
+                    <Text color={art === 'Entscheidung' ? 'merged' : 'warning'}>{art}</Text>
+                  </Box>
+                )
+              }),
+            )}
+            {mechanisch.length > 0 && (
+              <Box flexDirection="row" gap={1} flexWrap="wrap">
+                <Text dimColor>Repariert sich selbst:</Text>
+                {mechanisch.map(x => (
+                  <Link href={x.pr?.url ?? x.url} label={`#${x.pr?.number ?? x.nummer}`} />
+                ))}
+                {worker?.naechster && <Text dimColor>(nächster Worker {hm(worker.naechster, jetzt)})</Text>}
+              </Box>
+            )}
+            {abschnitt(
+              'In Arbeit',
+              inArbeit.map(a => (
+                <Box key={`arbeit-${a.issue?.number ?? a.pr?.number}`} flexDirection="row" justifyContent="space-between" gap={1}>
+                  <Link href={a.pr?.url ?? a.issue?.url ?? ''} label={kurz(auftragTitel(a), 60)} />
+                  <Text dimColor>{a.phase}</Text>
+                </Box>
+              )),
+            )}
+            {abschnitt(
+              'Bereit',
+              bereit.map(a => (
+                <Link href={a.issue?.url ?? ''} label={kurz(auftragTitel(a), 64)} />
+              )),
+            )}
+            {d && (
+              <Box flexDirection="column">
+                {ueberschrift('Gemergt seit gestern 09:00')}
+                <Text dimColor>
+                  {`Features ${d.features} · Tests, Code ${d.tests} · Doku ${d.doku}`}
+                  {d.autopilot > 0 ? ` · Autopilot ${d.autopilot}` : ''}
+                </Text>
+                {d.featureTitel.map(p => (
+                  <Box flexDirection="row" gap={1}>
+                    <Link href={p.url} label={`#${p.nummer}`} />
+                    <Text>{kurz(p.titel, 60)}</Text>
+                  </Box>
+                ))}
+                {d.prod.map(p => (
+                  <Box flexDirection="row" gap={1}>
+                    <Text color={p.offen ? 'error' : undefined} dimColor={!p.offen}>
+                      Prod:
+                    </Text>
+                    <Link href={p.url} label={`#${p.nummer}`} />
+                    <Text color={p.offen ? 'error' : undefined} dimColor={!p.offen}>
+                      {kurz(p.titel, 50)}, {p.offen ? 'offen' : 'erledigt'}
+                    </Text>
+                  </Box>
+                ))}
+              </Box>
+            )}
+            {r.fehler.map(x => (
+              <Text color="error">Fehler {x}</Text>
+            ))}
+            <Box flexDirection="row" gap={2}>
+              <Link href={`https://github.com/${r.repo}/issues`} label="Issues" />
+              <Link href={`https://github.com/${r.repo}/pulls`} label="PRs" />
+              <Link href={reviewer} label="Review-Läufe" />
+            </Box>
+          </Box>
+        </Box>
+      )
+    }
+
+    // 4. Auffaellig
+    const saetze = auffaelligAlle(s.repos, jetzt)
 
     return (
       <Box flexDirection="column" gap={1}>
         {kopf}
         {s.fehler && <Text color="error">Fehler: {s.fehler}</Text>}
         {s.at > 0 && !s.fehler && s.repos.length === 0 && (
-          <Text dimColor>Keine aktive Routine namens „Autopilot …: Planer|Worker|Reviewer|Chat“ gefunden.</Text>
+          <Text dimColor>Keine aktive Routine namens „Autopilot …: Planer|Scout|Worker|Reviewer|Chat“ gefunden.</Text>
         )}
-        {s.repos.map(r => {
-          const worker = rolle(r, 'Worker')
-          const bereit = r.auftraege.filter(a => a.phase === 'freigegeben').length
-          const faelle = echte(r)
-          const mechanisch = r.faelle.filter(f => f.mechanisch)
-          const hinweise = auffaellig(r, jetzt)
-          const d = r.digest
-
-          // Status-Chips als Text mit Trennpunkt; Farbe nur, wo es etwas heisst
-          const chips: { text: string; color?: string }[] = []
-          if (worker) {
-            const aktiv = worker.laeufe[0]?.isRunning === true
-            chips.push({ text: aktiv ? 'Worker arbeitet' : 'Worker wartet', color: aktiv ? 'success' : undefined })
-          }
-          chips.push(bereit > 0 ? { text: `${bereit} bereit`, color: 'suggestion' } : { text: 'Warteschlange leer' })
-          if (nachschubVoll(r)) {
-            chips.push({ text: `Nachschub ${r.nachschubHeute}/${r.nachschubDeckel} verbraucht`, color: 'warning' })
-          }
-
-          const selbst = mechanisch.length > 0 && (
-            <Box flexDirection="row" gap={1} flexWrap="wrap">
-              <Text dimColor>Repariert sich selbst:</Text>
-              {mechanisch.map(f => (
-                <Link href={f.pr?.url ?? f.url} label={`#${f.pr?.number ?? f.nummer}`} />
-              ))}
-              {worker?.naechster && <Text dimColor>(nächster Worker {hm(worker.naechster, jetzt)})</Text>}
+        {s.repos.length > 0 && brauchtDich}
+        {vs.map(verbundBlock)}
+        {s.repos.length > 0 && (
+          <Box flexDirection="column">
+            <Box flexDirection="row" justifyContent="space-between">
+              {ueberschrift('Repos')}
+              <Text dimColor size="caption">
+                gemergt seit gestern 09:00
+              </Text>
             </Box>
-          )
-
-          const bars: { name: string; wert: number; max: number; anzeige?: string; warn?: boolean }[] = []
-          if (r.wipAlle !== undefined && r.wipAlleDeckel !== undefined) {
-            const hier = r.wip !== undefined ? `, hier ${r.wip}` : ''
-            bars.push({ name: 'WIP alle Repos', wert: r.wipAlle, max: r.wipAlleDeckel, anzeige: `${r.wipAlle} von ${r.wipAlleDeckel}${hier}` })
-          }
-          if (r.wip !== undefined && r.wipDeckel !== undefined) {
-            bars.push({ name: r.zentrale ? 'WIP begleitet' : 'WIP', wert: r.wip, max: r.wipDeckel })
-          }
-          const ideen = r.zentrale ? r.ideenAlle : r.ideen
-          if (ideen !== undefined && r.ideenDeckel !== undefined) {
-            const hier = r.zentrale && r.ideen !== undefined ? `, hier ${r.ideen}` : ''
-            bars.push({ name: r.zentrale ? 'Ideen alle Repos' : 'Ideen offen', wert: ideen, max: r.ideenDeckel, anzeige: `${ideen} von ${r.ideenDeckel}${hier}` })
-          }
-          if (r.nachschubHeute !== undefined) {
-            bars.push({ name: 'Nachschub heute', wert: r.nachschubHeute, max: r.nachschubDeckel })
-          }
-          bars.push(...budgetBalken(r, f, jetzt))
-
-          return (
-            <Box key={`repo-${r.repo}`} flexDirection="column" gap={1}>
-              <Box flexDirection="column">
-                <Box flexDirection="row" justifyContent="space-between">
-                  <Link href={`https://github.com/${r.repo}`}>
-                    <Text weight="bold">{r.repo}</Text>
-                  </Link>
-                  <Text dimColor>
-                    {[r.stufe, s.at ? uhrzeit(s.at, jetzt) : ''].filter(Boolean).join(' · ')}
-                  </Text>
-                </Box>
-                <Box flexDirection="row" gap={1} flexWrap="wrap">
-                  {chips.map((c, i) => (
-                    <Text color={c.color} dimColor={!c.color}>
-                      {i > 0 ? '· ' : ''}
-                      {c.text}
-                    </Text>
-                  ))}
-                </Box>
-              </Box>
-
-              {faelle.length > 0 && (
-                <Box flexDirection="column" borderStyle="round" borderColor="warning" paddingX={1} gap={1}>
-                  <Box flexDirection="row" justifyContent="space-between">
-                    <Text color="warning" weight="semibold">
-                      Braucht dich · {faelle.length}
-                    </Text>
-                    {r.journalUrl && <Link href={r.journalUrl} label="Im Journal antworten" />}
-                  </Box>
-                  {faelle.map(f => (
-                    <Box flexDirection="column">
-                      <Box flexDirection="row" gap={1}>
-                        <Link href={f.url}>
-                          <Text weight="semibold">{kurz(`#${f.nummer} ${f.titel}`, 70)}</Text>
-                        </Link>
-                        {f.pr && <Link href={f.pr.url} label={`PR #${f.pr.number}`} />}
-                      </Box>
-                      <Text>{f.entscheidung ? `Frage: ${f.grund}` : f.grund}</Text>
-                    </Box>
-                  ))}
-                  {selbst}
-                </Box>
-              )}
-              {faelle.length === 0 && selbst}
-
-              {d && (
-                <Box flexDirection="column">
-                  {ueberschrift('Seit gestern 09:00')}
-                  <Box flexDirection="row" gap={1}>
-                    {[
-                      [d.gemergt, 'gemergt'],
-                      [d.features, 'Features'],
-                      [d.tests, 'Tests, Code'],
-                      [d.doku, 'Doku'],
-                    ].map(([zahl, name]) => (
-                      <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1} flexGrow={1}>
-                        <Text weight="semibold" size="heading" tabular>
-                          {String(zahl)}
-                        </Text>
-                        <Text dimColor size="caption">
-                          {String(name)}
-                        </Text>
-                      </Box>
-                    ))}
-                  </Box>
-                  {d.featureTitel.map(p => (
-                    <Box flexDirection="row" gap={1}>
-                      <Link href={p.url} label={`#${p.nummer}`} />
-                      <Text>{kurz(p.titel, 64)}</Text>
-                    </Box>
-                  ))}
-                  {d.gemergt > d.featureTitel.length && (
-                    <Text dimColor>und {d.gemergt - d.featureTitel.length} weitere</Text>
-                  )}
-                  {d.autopilot > 0 && (
-                    <Text dimColor>
-                      Autopilot selbst: {d.autopilot} {d.autopilot === 1 ? 'Änderung' : 'Änderungen'}
-                    </Text>
-                  )}
-                  {d.prod.length === 0 && <Text dimColor>Prod: keine Vorfälle</Text>}
-                  {d.prod.map(p => (
-                    <Box flexDirection="row" gap={1}>
-                      <Text color={p.offen ? 'error' : undefined} dimColor={!p.offen}>
-                        Prod:
-                      </Text>
-                      <Link href={p.url} label={`#${p.nummer}`} />
-                      <Text color={p.offen ? 'error' : undefined} dimColor={!p.offen}>
-                        {kurz(p.titel, 56)}, {p.offen ? 'offen' : 'erledigt'}
-                      </Text>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-
-              {hinweise.length > 0 && (
-                <Box flexDirection="column">
-                  {ueberschrift('Auffällig')}
-                  {hinweise.map(hw => (
-                    <Box flexDirection="column" borderStyle="round" borderColor={hw.schwer ? 'warning' : 'subtle'} paddingX={1}>
-                      <Text weight="semibold" color={hw.schwer ? 'warning' : undefined}>
-                        {hw.titel}
-                      </Text>
-                      {hw.text && <Text>{hw.text}</Text>}
-                    </Box>
-                  ))}
-                </Box>
-              )}
-
-              {bars.length > 0 && (
-                <Box flexDirection="column">
-                  {ueberschrift('Deckel und Budget')}
-                  <Box flexDirection="row" columnGap={3} flexWrap="wrap">
-                    {bars.map(b => {
-                      const { voll, rest } = balken(b.wert, b.max)
-                      const ganz = b.warn ?? b.wert >= b.max
-                      return (
-                        <Box flexDirection="column" minWidth={24}>
-                          <Box flexDirection="row" justifyContent="space-between" gap={1}>
-                            <Text>{b.name}</Text>
-                            <Text color={ganz ? 'warning' : undefined} dimColor={!ganz}>
-                              {b.anzeige ?? `${b.wert} von ${b.max}`}
-                            </Text>
-                          </Box>
-                          <Text>
-                            <Text color={ganz ? 'warning' : 'suggestion'}>{voll}</Text>
-                            <Text dimColor>{rest}</Text>
-                          </Text>
-                        </Box>
-                      )
-                    })}
-                  </Box>
-                </Box>
-              )}
-
-              {r.routinen.length > 0 && (
-                <Box flexDirection="column">
-                  {ueberschrift('Rollen')}
-                  {r.routinen.map(rt => (
-                    <Box flexDirection="row" gap={1}>
-                      <Box width={9} flexShrink={0}>
-                        {rt.url ? (
-                          <Link href={rt.url}>
-                            <Text weight="semibold">{rt.rolle}</Text>
-                          </Link>
-                        ) : (
-                          <Text weight="semibold">{rt.rolle}</Text>
-                        )}
-                      </Box>
-                      <Text color={rt.fehler ? 'error' : undefined} dimColor={!rt.fehler}>
-                        {rollenZeile(rt, jetzt)}
-                      </Text>
-                    </Box>
-                  ))}
-                  <Link href={ALLE_LAEUFE} label="Alle Läufe" />
-                </Box>
-              )}
-
-              {r.fehler.map(f => (
-                <Text color="error">Fehler {f}</Text>
-              ))}
-            </Box>
-          )
-        })}
+            {s.repos.map(repoZeile)}
+          </Box>
+        )}
+        {s.repos.length > 0 && (
+          <Box flexDirection="column">
+            {ueberschrift('Auffällig')}
+            {saetze.length === 0 && <Text dimColor>nichts</Text>}
+            {saetze.map(x => (
+              <Text color={x.schwer ? 'warning' : undefined} dimColor={!x.schwer}>
+                {x.text}
+              </Text>
+            ))}
+          </Box>
+        )}
       </Box>
     )
   })
