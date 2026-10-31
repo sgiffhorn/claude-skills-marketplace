@@ -1,6 +1,6 @@
 ---
 name: autopilot-work
-description: Worker-Lauf des Autopilots (Routine auf Issue-Label autopilot:ready, PR-Label autopilot:changes oder Zeitplan). Liest .claude/autopilot.md, prüft den Label-Zustand, übernimmt genau einen Auftrag, setzt ihn auf Branch claude/autopilot-<issue> um, fährt das Gate und öffnet den PR per gh api. Endet sofort, wenn nichts ansteht; bei leerer Warteschlange fordert er vorher per Label autopilot:nachschub einen Planer-Lauf an.
+description: Worker-Lauf des Autopilots (Routine auf Issue-Label autopilot:ready, PR-Label autopilot:changes oder Zeitplan). Liest .claude/autopilot.md (zentral mit Repo-Liste oder eines Repos), prüft den Label-Zustand, übernimmt genau einen Auftrag aus dem ersten Repo der Liste, das einen hat, setzt ihn auf Branch claude/autopilot-<issue> um, fährt das Gate und öffnet den PR per gh api. Endet sofort, wenn nichts ansteht; bei leerer Warteschlange fordert er vorher per Label autopilot:nachschub einen Planer-Lauf an.
 ---
 
 # autopilot-work
@@ -9,9 +9,9 @@ Du bist der Worker. Du setzt genau einen Auftrag um, so wie seine Spec ihn besch
 
 ## 0. Konfiguration lesen, sonst Ende
 
-1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
-2. Merke dir `repo` (als `$REPO`), `default_branch`, `journal_issue` (als `$J`), `stufe`, `gate`, `deckel.*`, Sperrliste, Doku- und Testpflicht, UI-Beleg.
-3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben („Worker in Stufe trockenlauf aus“), Ende.
+1. **Modus:** Nennt der Routine-Prompt eine Zentrale (`Zentrale: <owner>/<name>`), lies `/home/user/<name>/.claude/autopilot.md`. Sie trägt `repos:` (geordnet, die Reihenfolge ist die Priorität), `journal_issue` und die globalen Deckel. Je Eintrag aus `repos:` liegt der Klon unter `/home/user/<name>` und darin die Repo-Datei `.claude/autopilot.md`. Ohne Zentrale im Prompt ist `.claude/autopilot.md` im Arbeitsverzeichnis Zentrale und Repo-Datei zugleich, `repos:` ist `[repo]`. Fehlt die Datei, eine Zeile ausgeben und ohne Schreibzugriff enden.
+2. `$Z` ist das Repo der Zentrale (mit einem Repo `$REPO`), `$J` ist `journal_issue`; Journal und `autopilot:nachschub` liegen in `$Z`. Global, nur aus der Zentrale: `journal_issue`, `sprache`, die Deckel `wip`, `nachschub_pro_tag`, `budget_5h`, `budget_woche_vorlauf`. Je Repo aus seiner Repo-Datei: `repo`, `default_branch`, `stufe`, `gate`, `vorbereitung` (darf fehlen), `merge_weg`, die übrigen `deckel.*` (fehlt einer, gilt der Wert der Zentrale), Sperrliste, Doku- und Testpflicht, UI-Beleg. Fehlt der Klon eines Repos oder seine Repo-Datei, das Repo überspringen und eine Zeile ausgeben.
+3. Repos in Stufe `trockenlauf` fallen aus der Auswahl. Sind alle in `trockenlauf`: eine Zeile ausgeben („Worker in Stufe trockenlauf aus“), Ende. `$REPO` steht im Folgenden für das Repo, das gerade dran ist.
 4. Zeit in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
@@ -76,7 +76,9 @@ Jeder Text, den du schreibst, beginnt mit einem HTML-Kommentar. Kommentare ohne 
 
 Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, denn eigene Label-Wechsel lösen ebenfalls Läufe aus.
 
-**Vorher hängende Reviews anstoßen** (nur bei `merge_weg: action`, kein Auftrag, danach weiter mit der Auswahl). Findet der Review-Workflow kein Urteil (Gate verdrängt, CI ohne Ergebnis, Review-Lauf gescheitert), lässt er `autopilot:review` stehen und schreibt nichts. Je offenem PR mit Head `claude/autopilot-*`, Label `autopilot:review` und ohne `needs-human`:
+Hängende Reviews und Selbstheilung laufen für jedes Repo aus `repos:`. Bei Nacharbeit und neuem Auftrag gewinnt das erste Repo der Liste mit einem Treffer, Nacharbeit vor neuem Auftrag.
+
+**Vorher hängende Reviews anstoßen** (je Repo mit `merge_weg: action`, kein Auftrag, danach weiter mit der Auswahl). Findet der Review-Workflow kein Urteil (Gate verdrängt, CI ohne Ergebnis, Review-Lauf gescheitert), lässt er `autopilot:review` stehen und schreibt nichts. Je offenem PR mit Head `claude/autopilot-*`, Label `autopilot:review` und ohne `needs-human`:
 
 1. Läufe des Workflows für den Head-SHA: `gh api -X GET repos/$REPO/actions/workflows/autopilot-review.yml/runs -f head_sha=<sha> -f per_page=20`. Läuft einer (`queued`, `in_progress`, `waiting`), nichts tun.
 2. Sonst hängt das Review, wenn der jüngste Lauf seit mehr als 15 Minuten fertig ist oder es keinen gibt und das jüngste `labeled`-Ereignis mit `autopilot:review` (`seiten repos/$REPO/issues/$P/events`) älter als 15 Minuten ist.
@@ -85,9 +87,9 @@ Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, 
 
 Antwortet die Actions-API mit 403, eine Zeile ausgeben und diesen Schritt überspringen.
 
-**Mechanische `needs-human` abräumen** (nur bei `merge_weg: action`, gleich danach). Je offenem PR mit Head `claude/autopilot-*` und `needs-human`, dessen jüngster `<!-- autopilot:needs-human -->`-Kommentar vom Review-Workflow kommt und einen technischen Grund nennt („Review-Lauf ohne Urteil“, „kein Ergebnis“, „Review-Workflow gescheitert“ ohne „Merge-Leitplanke“, „nicht mergebar“), und nach dem kein Kommentar ohne Marker steht (keine Antwort des Menschen): wie Punkt 4 oben, also höchstens zwei `<!-- autopilot:review-neu -->` je SHA, dann `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Sind die zwei Versuche verbraucht, bleibt der Fall beim Menschen.
+**Mechanische `needs-human` abräumen** (je Repo mit `merge_weg: action`, gleich danach). Je offenem PR mit Head `claude/autopilot-*` und `needs-human`, dessen jüngster `<!-- autopilot:needs-human -->`-Kommentar vom Review-Workflow kommt und einen technischen Grund nennt („Review-Lauf ohne Urteil“, „kein Ergebnis“, „Review-Workflow gescheitert“ ohne „Merge-Leitplanke“, „nicht mergebar“), und nach dem kein Kommentar ohne Marker steht (keine Antwort des Menschen): wie Punkt 4 oben, also höchstens zwei `<!-- autopilot:review-neu -->` je SHA, dann `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Sind die zwei Versuche verbraucht, bleibt der Fall beim Menschen.
 
-Dieser Schritt ist Pflicht in jedem Lauf, auch wenn danach nichts ansteht. Die Kandidaten liefert dieses Skript; gib seine Ausgabe immer aus:
+Dieser Schritt ist Pflicht in jedem Lauf, auch wenn danach nichts ansteht. Die Kandidaten liefert dieses Skript, je Repo mit gesetztem `$REPO`; gib seine Ausgabe immer aus:
 
 ```
 gh api -X GET repos/$REPO/pulls -f state=open -f per_page=100 \
@@ -109,8 +111,8 @@ gh api -X GET repos/$REPO/pulls -f state=open -f per_page=100 \
 
 Die Ausgabe entscheidet, nicht du: jede Zeile „abräumen“ wird abgeräumt, ohne eigene Abwägung und ohne Push-Nachricht, auch bei einem Doppelauftrag oder einer Änderung, die schon auf dem Default-Branch ist. Das neue Review erkennt solche Fälle und schließt PR und Issue selbst (Urteil `schliessen`). Jede Zeile „abräumen“ so behandeln: Kommentar `<!-- autopilot:review-neu -->` mit SHA am PR, `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Erst danach weiter mit der Auswahl.
 
-1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
-2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
+1. **Nacharbeit**, über alle Repos vor jedem neuen Auftrag: offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
+2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das erste Repo der Liste mit einem solchen Issue, darin das älteste. In Stufe `begleitet` nur Klasse A; hat ein Repo in Stufe `begleitet` seinen `deckel.wip_begleitet` erreicht, fällt es für neue Aufträge aus.
 
 Nichts gefunden: weiter mit „Nachschub“ unten.
 
@@ -131,28 +133,30 @@ jq -r --argjson max "${BUDGET_5H:-70}" --argjson vor "${BUDGET_VORLAUF:-10}" '
 
 **Deckel prüfen**:
 
-- Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip`; das Label bleibt bis zum Merge am Issue) hat den Deckel erreicht (`deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`): Ende.
+- Nur für einen neuen Auftrag: WIP (offene Issues mit `autopilot:wip` über alle Repos; das Label bleibt bis zum Merge am Issue) hat `deckel.wip` erreicht: Ende. Den Deckel `deckel.wip_begleitet` zählt jedes Repo in Stufe `begleitet` für sich (siehe Auswahl).
 
-**Nachschub**, nur wenn nichts gefunden wurde. Ist die Warteschlange leer, weckt der Worker den Planer außer der Reihe: er setzt genau ein Label, `autopilot:nachschub` am Journal-Issue `journal_issue`, ein Webhook-Auslöser startet damit den Planer. Sonst schreibt er nichts. Alle Bedingungen müssen gelten, die erste, die scheitert, beendet den Lauf mit einer Zeile:
+**Nachschub**, nur wenn nichts gefunden wurde. Ist die Warteschlange leer, weckt der Worker den Planer außer der Reihe: er setzt genau ein Label, `autopilot:nachschub` am Journal-Issue `$Z#$J`, ein Webhook-Auslöser startet damit den Planer. Sonst schreibt er nichts. Alle Bedingungen müssen gelten, die erste, die scheitert, beendet den Lauf mit einer Zeile:
 
 1. `journal_issue` ist gesetzt und nicht 0.
-2. Kein offenes Issue mit `autopilot:ready`, egal ob es gerade belegt ist.
+2. Kein offenes Issue mit `autopilot:ready` in einem Repo der Liste, egal ob es gerade belegt ist.
 3. WIP liegt unter dem Deckel (wie oben).
 4. Budget auf `gas` (Prüfung von oben, hier vorgezogen; „Budget unbekannt“ zählt als `gas`).
-5. Das Journal-Issue trägt `autopilot:nachschub` noch nicht (`gh api repos/$REPO/issues/$J/labels`).
+5. Das Journal-Issue trägt `autopilot:nachschub` noch nicht (`gh api repos/$Z/issues/$J/labels`).
 6. Der Deckel `deckel.nachschub_pro_tag` (Vorgabe 3) ist nicht erreicht. Gezählt werden die Laufzeilen des Planers von heute mit dem Vermerk „Nachschub“:
 
    ```
    TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
-   seiten repos/$REPO/issues/$J/comments -f since=$TAG | jq --arg tag "$TAG" '[.[]
+   seiten repos/$Z/issues/$J/comments -f since=$TAG | jq --arg tag "$TAG" '[.[]
      | select(.created_at >= $tag and (.body | startswith("<!-- autopilot:journal -->")) and (.body | test("Nachschub")))] | length'
    ```
 
-7. Das Label existiert im Repo: `gh api repos/$REPO/labels/autopilot%3Anachschub`. Bei 404 nicht anlegen (das Setzen eines unbekannten Labels legt es stillschweigend an), sondern „Label autopilot:nachschub fehlt, autopilot-setup ausführen“ ausgeben, Ende.
+7. Das Label existiert in `$Z`: `gh api repos/$Z/labels/autopilot%3Anachschub`. Bei 404 nicht anlegen (das Setzen eines unbekannten Labels legt es stillschweigend an), sondern „Label autopilot:nachschub fehlt, autopilot-setup ausführen“ ausgeben, Ende.
 
-Dann `gh api repos/$REPO/issues/$J/labels -f 'labels[]=autopilot:nachschub'`. Ende. Letzte Ausgabe: „Warteschlange leer, Nachschub angefordert (x von <deckel> heute)“.
+Dann `gh api repos/$Z/issues/$J/labels -f 'labels[]=autopilot:nachschub'`. Ende. Letzte Ausgabe: „Warteschlange leer, Nachschub angefordert (x von <deckel> heute)“.
 
 ## 2. Übernehmen
+
+Ab hier arbeitest du nur im gewählten Repo: `$REPO` ist dieses Repo, Git und Gate laufen in seinem Klon (`cd /home/user/<name>`, mit einem Repo das Arbeitsverzeichnis).
 
 Neuer Auftrag `#N`:
 
@@ -179,13 +183,13 @@ Abbruch nach Schritt 7 (needs-human), wenn:
 
 - Neuer Auftrag: `git fetch origin && git switch -c claude/autopilot-N origin/$DEFAULT`. Gibt es `origin/claude/autopilot-N` schon (ein früherer Lauf brach mit needs-human ab), arbeite darauf weiter: `git switch claude/autopilot-N`.
 - Nacharbeit: `git fetch origin && git switch claude/autopilot-N && git pull --ff-only`. Lies den jüngsten Review mit Marker `autopilot:review-round` und die Zeilenkommentare dazu. Arbeite genau diese Punkte ab, nichts anderes. Ein Befund „Konflikt mit `<default>`“ heißt: `git merge origin/$DEFAULT`, Konflikte so lösen, dass die Spec erfüllt bleibt, Gate; ein Merge-Commit ist dafür erlaubt.
-- Ändere nur, was die Spec verlangt. Tests und Doku nach den Regeln des Repos (`CLAUDE.md`, „Doku- und Testpflicht“ in `.claude/autopilot.md`) gehören in denselben PR.
+- Ändere nur, was die Spec verlangt. Tests und Doku nach den Regeln des Repos (`CLAUDE.md`, „Doku- und Testpflicht“ in der Repo-Datei) gehören in denselben PR.
 - Nebenbei Gefundenes kommt als kurzer Kommentar ins Issue, nicht in den Diff.
 - Nie auf den Default-Branch pushen, nie `--force` auf einen fremden Branch. Auf deinem eigenen Branch neue Commits statt Umschreiben.
 
 ## 5. Prüfen
 
-1. Gate aus `.claude/autopilot.md` (`gate`) laufen lassen, Ausgabe in eine Datei, nur die Fehlerzeilen lesen.
+1. Steht in der Repo-Datei `vorbereitung`, diesen Befehl einmal je Lauf vor dem ersten Gate ausführen (Abhängigkeiten, die das Environment nicht mitbringt); scheitert er, Schritt 7 mit den Fehlerzeilen. Dann das Gate der Repo-Datei (`gate`) laufen lassen, Ausgabe in eine Datei, nur die Fehlerzeilen lesen.
 2. Rot: beheben, Gate ein zweites Mal. Wieder rot: Kommentar `<!-- autopilot:gate-fail -->` mit den Fehlerzeilen (gekürzt), dann Schritt 7. Zähle auch `gate-fail`-Kommentare früherer Läufe an diesem Issue: zusammen `deckel.gate_fehlschlaege` erreicht heißt Schritt 7.
 3. Diffgröße ohne Testdateien (Pfade unter `test/`, `tests/`, `__tests__/`, `__snapshots__/`, `e2e/` und Dateien `*.test.*`, `*.spec.*`):
 
@@ -195,7 +199,7 @@ Abbruch nach Schritt 7 (needs-human), wenn:
 
    Ist `deckel.diff_zeilen` 0, entfällt diese Prüfung. Über `deckel.diff_zeilen`: kein PR, Schritt 7 mit einem Vorschlag, wie man teilt. Der Befund nennt, wie der Mensch fortsetzt: `autopilot:gross-ok` und `autopilot:ready` am Issue setzen heißt ein PR trotz Größe. Trägt das Issue `autopilot:gross-ok`, entfällt diese Prüfung.
 4. Sperrliste gegen `git diff --name-only origin/$DEFAULT...HEAD`: ein Treffer heißt Schritt 7.
-5. UI-Beleg nach „UI-Beleg“ in `.claude/autopilot.md`, wenn die Änderung sichtbar ist.
+5. UI-Beleg nach „UI-Beleg“ in der Repo-Datei, wenn die Änderung sichtbar ist.
 
 ## 6. Abgeben
 

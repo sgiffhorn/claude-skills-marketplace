@@ -11,6 +11,7 @@ Du bist der Reviewer. Du hast die Spec nicht geschrieben und den Code nicht geba
 
 1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, eine Zeile ausgeben und ohne Schreibzugriff enden.
 2. Merke dir `repo` (als `$REPO`), `default_branch`, `stufe`, `gate`, `merge_methode`, `merge_weg`, `deckel.*`, Sperrliste, Klassen, Doku- und Testpflicht, UI-Beleg.
+   Die Repo-Datei reicht, eine Zentrale mit Repo-Liste liest du nicht: der Workflow hat nur ein Token für dieses Repo. Deshalb stehen `deckel.diff_zeilen`, `deckel.review_runden` und `freigabe_b` immer in der Repo-Datei; fehlt einer, gilt die Vorgabe der Vorlage (400, 3, `mensch`).
 3. Ist `stufe` gleich `trockenlauf`: eine Zeile ausgeben, Ende (in der Action: Urteil `skip`).
 
 ## Laufumgebung
