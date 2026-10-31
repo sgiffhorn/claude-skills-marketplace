@@ -14,7 +14,7 @@
     },
     {
       "name": "autopilot-monitor",
-      "description": "Panel neben dem Chat: Autopilot-Auftraege, letzte Routine-Laeufe und Deckel-Warnungen aller Repos.",
+      "description": "Panel neben dem Chat: Entscheidungen, Digest, Auffaelliges, Deckel und Rollen des Autopiloten aller Repos.",
       "source": "./plugins/autopilot-monitor",
       "category": "development"
     }

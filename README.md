@@ -57,7 +57,7 @@ Routines laden das Plugin nicht über `.claude/settings.json`, das installiert d
 
 ## Plugin `autopilot-monitor`
 
-Panel neben dem Chat, das den Autopilot aller Repos zeigt: Aufträge nach Labels, letzte Läufe von Planer, Worker und Reviewer, Warnung wenn ein Deckel greift. Die Repos findet es selbst über die Namen der Routinen. Ein- und ausblenden mit `/autopilot-panel`. Details: [`plugins/autopilot-monitor/README.md`](plugins/autopilot-monitor/README.md).
+Panel neben dem Chat, das den Autopilot aller Repos zeigt: was dich braucht, was seit gestern 09:00 gemergt wurde, Auffälliges, Deckel und den letzten Lauf je Rolle. Die Repos findet es selbst über die Namen der Routinen. Ein- und ausblenden mit `/autopilot-panel`. Details: [`plugins/autopilot-monitor/README.md`](plugins/autopilot-monitor/README.md).
 
 ```bash
 claude plugin install autopilot-monitor@sgiffhorn-skills
