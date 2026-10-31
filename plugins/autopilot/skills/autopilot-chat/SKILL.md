@@ -1,6 +1,6 @@
 ---
 name: autopilot-chat
-description: Chat-Lauf des Autopilots (Routine auf Issue-Kommentar am Journal-Issue, dazu morgens per Zeitplan der Tages-Digest). Liest die neuen Kommentare des Operators im Journal (zentral für alle Repos der Liste oder je Repo), beantwortet Fragen zum Stand und führt Anweisungen aus, die per Label gehen (freigeben, needs-human auflösen, Review neu anstoßen, Planer anstoßen, Idee als Issue). Mergt nie, schreibt keinen Code. Endet sofort, wenn kein neuer Kommentar ansteht.
+description: Chat-Lauf des Autopilots (Routine auf Issue-Kommentar am Journal-Issue, dazu morgens per Zeitplan der Tages-Digest). Liest die neuen Kommentare des Operators im Journal (zentral für alle Repos der Liste oder je Repo), beantwortet Fragen zum Stand und führt Anweisungen aus, die per Label gehen (freigeben, needs-human auflösen, Entscheidung beantworten, Review neu anstoßen, Planer anstoßen, Idee als Issue). Mergt nie, schreibt keinen Code. Endet sofort, wenn kein neuer Kommentar ansteht.
 ---
 
 # autopilot-chat
@@ -55,15 +55,16 @@ Der Digest deckt alle Repos aus `repos:` ab. Woher der Weckruf kam, spielt keine
 Gemergt: <n> (Features <a>, Tests und toter Code <b>, Doku <c>)
 - #pr <Feature-Titel>   (höchstens 5, dann „und n weitere“)
 
-Braucht dich: <nur echte Entscheidungen, je #n und Grund in einem Satz, oder „nichts“>
+Braucht dich: <offene Entscheidungen (`autopilot:entscheidung`, je #n und die Frage in einem Satz) und echte needs-human-Fälle (je #n und Grund), oder „nichts“>
 Repariert sich selbst: <mechanische needs-human, oder weglassen>
 Auffällig: <Worker ohne Arbeit seit, Nachschub-Deckel erreicht um, Prod-Vorfälle (Label `prod-incident`), oder weglassen>
+Ideen: <k> neu im Fenster, <o> offen von <deckel.offene_ideen>
 Heute: WIP <x> von <deckel>, <n> bereit, <m> Vorschläge
 ```
 
 Mit mehr als einem Repo steht jede Nummer als `<owner>/<name>#n`, und „Gemergt“ sowie „Heute“ bekommen je Repo eine Zeile (`<name>: …`) unter der Summe; ein Repo ohne Bewegung entfällt dort. WIP und Deckel zählen über alle Repos.
 
-Gezählt werden PRs mit Head `claude/autopilot-*` und `merged_at` im Fenster; Titel mit „Doku“ oder „Handbuch“ sind Doku, mit „Test“ oder „Toter Code“ Tests und toter Code, Titel mit „autopilot“ am Anfang zählen nicht (Änderungen am Autopiloten selbst), der Rest sind Features. Mechanisch ist ein `needs-human`, dessen jüngster Marker-Kommentar „Review-Lauf ohne Urteil“, „kein Ergebnis“, „gescheitert“ ohne „Merge-Leitplanke“ oder „nicht mergebar“ nennt. Nichts behaupten, was du nicht gelesen hast. Danach weiter mit Schritt 2 (offene Nachrichten gibt es auch morgens).
+Neue Ideen sind Issues mit `autopilot:idee` und `created_at` im Fenster, offen und geschlossen; „offen“ zählt die offenen über alle Repos. Gezählt werden PRs mit Head `claude/autopilot-*` und `merged_at` im Fenster; Titel mit „Doku“ oder „Handbuch“ sind Doku, mit „Test“ oder „Toter Code“ Tests und toter Code, Titel mit „autopilot“ am Anfang zählen nicht (Änderungen am Autopiloten selbst), der Rest sind Features. Mechanisch ist ein `needs-human`, dessen jüngster Marker-Kommentar „Review-Lauf ohne Urteil“, „kein Ergebnis“, „gescheitert“ ohne „Merge-Leitplanke“ oder „nicht mergebar“ nennt. Nichts behaupten, was du nicht gelesen hast. Danach weiter mit Schritt 2 (offene Nachrichten gibt es auch morgens).
 
 ## 2. Offene Nachrichten finden (nur lesen)
 
@@ -87,6 +88,7 @@ Je offenem Kommentar: erst das Repo bestimmen, dann den Stand lesen, dann handel
 | Vorschlag freigeben | `autopilot:proposed` nehmen, `autopilot:ready` setzen |
 | Vorschlag oder Auftrag verwerfen | Labels `autopilot:*` nehmen, Issue schließen mit `state_reason=not_planned`, Grund als Kommentar mit `<!-- autopilot:chat -->` am Issue |
 | `needs-human` auflösen, weiter wie geplant | Antwort des Operators als Kommentar mit `<!-- autopilot:antwort -->` an Issue oder PR, `needs-human` an Issue und PR nehmen; liegt ein offener PR vor: `autopilot:wip` ans Issue, `autopilot:review` an den PR; sonst `autopilot:ready` ans Issue |
+| Entscheidung beantworten | Wortlaut des Operators als Kommentar ohne Marker an das Issue mit `autopilot:entscheidung` (er gilt als Antwort des Menschen, der Planer arbeitet sie ein); Labels bleiben |
 | PR trotz Größe | `autopilot:gross-ok` und `autopilot:ready` ans Issue (nur wo der Diff-Deckel greift) |
 | Review neu anstoßen | `autopilot:review` am PR nehmen und wieder setzen |
 | Planer jetzt laufen lassen | `autopilot:nachschub` am Journal in `$Z` setzen (zählt gegen `deckel.nachschub_pro_tag`; ist er erreicht, sag es) |

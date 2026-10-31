@@ -3,7 +3,8 @@ repo: OWNER/NAME
 default_branch: main
 # Mit Zentrale (template-zentrale.md) gelten journal_issue, sprache, environments, modelle
 # und die globalen Deckel (wip, neue_auftraege_pro_planerlauf, offene_vorschlaege,
-# pruefungen_pro_lauf, nachschub_pro_tag, budget_*) nur dort; hier ignoriert.
+# pruefungen_pro_lauf, nachschub_pro_tag, ideen_pro_lauf, offene_ideen, scout_dateien_pro_lauf,
+# budget_*) nur dort; hier ignoriert.
 journal_issue: 0
 # trockenlauf: nur der Planer, alles als autopilot:proposed
 # begleitet: Worker und Reviewer an, nur Klasse A, Reviewer mergt nicht
@@ -36,7 +37,6 @@ deckel:
   neue_auftraege_pro_planerlauf: 6
   offene_vorschlaege: 10
   pruefungen_pro_lauf: 15
-  inventur_tage: 30
   # review_runden und diff_zeilen liest auch der Review-Workflow, sie stehen deshalb immer hier
   # ein neuer Befund je Runde ist Fortschritt; ein unbehobener aus der Vorrunde geht sofort an den Menschen
   review_runden: 3
@@ -50,11 +50,15 @@ deckel:
   wip_timeout_stunden: 6
   # Planer-Läufe außer der Reihe, wenn der Worker keine Arbeit findet (Label autopilot:nachschub)
   nachschub_pro_tag: 3
+  # Scout: neue Ideen-Issues je Lauf, offene autopilot:idee (erreicht: keine neuen), gelesene Dateien je Lauf
+  ideen_pro_lauf: 5
+  offene_ideen: 30
+  scout_dateien_pro_lauf: 8
 ---
 
 # Autopilot: Konfiguration für OWNER/NAME
 
-Gelesen von den Skills `autopilot-plan`, `autopilot-work`, `autopilot-chat` und `autopilot-review` (Plugin `autopilot`) und vom Workflow `.github/workflows/autopilot-review.yml`. Die Kopfzeile ist maschinenlesbar, der Rest gilt wörtlich.
+Gelesen von den Skills `autopilot-plan`, `autopilot-scout`, `autopilot-work`, `autopilot-chat` und `autopilot-review` (Plugin `autopilot`) und vom Workflow `.github/workflows/autopilot-review.yml`. Die Kopfzeile ist maschinenlesbar, der Rest gilt wörtlich.
 
 ## Sperrliste (Klasse C)
 
@@ -80,12 +84,11 @@ Features, neue Routen, sichtbare UI-Änderungen.
 ## Planer-Quellen (in dieser Reihenfolge)
 
 1. Offene Issues ohne `autopilot:*`-Label und ohne Ausschluss-Label.
-2. **Doku-Sweep** über diese Dokumente (Inventur, danach nur Änderungen; Ablauf im Skill `autopilot-plan`). `§ Abschnitt` heißt, nur diesen Abschnitt lesen.
+2. **Doku-Sweep** über diese Dokumente: der Scout (`autopilot-scout`) liest sie der Reihe nach ganz und legt Ideen als `autopilot:idee` an, der Planer prüft sie am Code. `§ Abschnitt` heißt, nur diesen Abschnitt lesen. Die Zentrale und jedes `zweit_repos` liest der Scout ohnehin ganz.
    - `docs/**/*.md`
-   - je Eintrag in `zweit_repos`, nur was dieses Repo betrifft: `OWNER/META:docs/*.md`
 3. Bereichs-Review im Umlauf (Zeiger „Letzter Bereich“): je Lauf ein Bereich des Codes, der Reihe nach. Gesucht: Testlücken, Doku-Drift, toter Code. Höchstens 2 Befunde je Lauf.
 
-Jeder Doku-Treffer wird am Code geprüft: schon umgesetzt ist Doku-Drift (Klasse A), umsetzbar ohne offene Entscheidung ist ein Vorschlag (meist Klasse B), alles mit offener Entscheidung oder auf der Sperrliste kommt mit Grund ins Gedächtnis.
+Jeder Doku-Treffer wird am Code geprüft: schon umgesetzt ist Doku-Drift (Klasse A), umsetzbar ohne offene Entscheidung ist ein Vorschlag (meist Klasse B), alles mit offener Entscheidung oder auf der Sperrliste wird ein Issue mit `autopilot:entscheidung` und genau einer Frage.
 
 ## Ausschluss-Labels
 
