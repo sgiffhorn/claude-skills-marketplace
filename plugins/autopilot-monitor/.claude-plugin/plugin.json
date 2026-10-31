@@ -1,7 +1,7 @@
 {
   "name": "autopilot-monitor",
-  "description": "Panel neben dem Chat: was den Menschen braucht, Deckel und Rollen ueber alle Repos, je Repo eine aufklappbare Zeile, Auffaelliges; Mergen, Freigeben und Antworten direkt im Panel.",
-  "version": "0.7.0",
+  "description": "Panel neben dem Chat: was den Menschen braucht, Deckel und Rollen ueber alle Repos, je Repo eine aufklappbare Zeile, Auffaelliges; Mergen, Freigeben, Antworten, Verwerfen und Laeufe anstossen direkt im Panel.",
+  "version": "0.8.0",
   "author": {
     "name": "Sebastian Giffhorn"
   },

@@ -145,11 +145,16 @@ async function organisation($: EngineInterface): Promise<string> {
   return uuid
 }
 
-async function api($: EngineInterface, pfad: string): Promise<any> {
+async function api($: EngineInterface, pfad: string, post?: object): Promise<any> {
   const auth = await $.session.authorize()
   if (!auth) throw new Error('keine claude.ai-Anmeldung in dieser Session')
-  const headers = { ...API_HEADERS, 'x-organization-uuid': await organisation($) }
-  const r = await $.http.fetch(`${API}${pfad}`, { headers, auth: auth.handle })
+  const headers: Record<string, string> = { ...API_HEADERS, 'x-organization-uuid': await organisation($) }
+  if (post) headers['content-type'] = 'application/json'
+  const r = await $.http.fetch(`${API}${pfad}`, {
+    headers,
+    auth: auth.handle,
+    ...(post ? { method: 'POST', body: JSON.stringify(post) } : {}),
+  })
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${kurz(r.text, 160)}`)
   return JSON.parse(r.text)
 }
@@ -776,6 +781,7 @@ async function leseRoutine(
   const routine: Routine = {
     rolle,
     url: `https://claude.ai/code/routines/${triggerId}`,
+    triggerId,
     laeufe: [],
     naechster: eintrag.naechster !== undefined && eintrag.naechster > jetzt ? eintrag.naechster : undefined,
   }
@@ -1187,6 +1193,34 @@ async function vorschlagFrei($: EngineInterface, repo: string, n: number): Promi
   await labelWeg($, repo, n, 'autopilot:proposed')
   await labelDazu($, repo, n, 'autopilot:ready')
   return `#${n} freigegeben.`
+}
+
+async function zurueckstellen($: EngineInterface, repo: string, n: number): Promise<string> {
+  await labelWeg($, repo, n, 'autopilot:ready')
+  await labelDazu($, repo, n, 'autopilot:proposed')
+  return `#${n} zurückgestellt, wartet wieder auf Freigabe.`
+}
+
+// Wie die Chat-Routine: Labels weg, Grund als Kommentar, schliessen als not planned
+async function verwerfen($: EngineInterface, repo: string, n: number): Promise<string> {
+  await kommentiere($, repo, n, '<!-- autopilot:chat -->\nIm Panel verworfen.')
+  for (const l of ['autopilot:ready', 'autopilot:proposed', 'autopilot:idee']) await labelWeg($, repo, n, l)
+  await gh($, ['api', '-X', 'PATCH', `repos/${repo}/issues/${n}`, '-f', 'state=closed', '-f', 'state_reason=not_planned'])
+  return `#${n} verworfen.`
+}
+
+async function routineJetzt($: EngineInterface, rt: Routine): Promise<string> {
+  if (!rt.triggerId) throw new Error(`${rt.rolle} ist keine Routine`)
+  await api($, `/v1/code/triggers/${encodeURIComponent(rt.triggerId)}/run`, {})
+  // Der naechste Durchlauf soll den neuen Lauf sehen
+  gefunden = undefined
+  return `${rt.rolle} gestartet.`
+}
+
+// Der Planer laeuft ausser der Reihe ueber das Label am Journal, gegen nachschub_pro_tag
+async function planerJetzt($: EngineInterface, journalRepo: string, journal: number): Promise<string> {
+  await labelDazu($, journalRepo, journal, 'autopilot:nachschub')
+  return 'Planer angestoßen (Nachschub).'
 }
 
 export function ciText(ci?: string): string | undefined {
@@ -1638,6 +1672,8 @@ export const register: Register = on => {
     const verbundBlock = (v: Verbund) => {
       const bars = verbundBalken(v, f, jetzt)
       const rollen = rollenVon(v)
+      const planer = rollen.find(x => x.rolle === 'Planer')
+      const journal = Number(v.repos.find(x => x.journalUrl)?.journalUrl?.match(/\/issues\/(\d+)/)?.[1]) || undefined
       const titel = v.zentrale ? 'Alle Repos' : 'Deckel und Rollen'
       const name = vs.length > 1 ? `${titel} · ${kurzname(v.quelle)}` : titel
       if (einRepoOffen) {
@@ -1674,7 +1710,20 @@ export const register: Register = on => {
               </Box>
             )
           })}
-          {rollen.length > 0 && <Link href={ALLE_LAEUFE} label="Alle Läufe" />}
+          {rollen.length > 0 && (
+            <Box flexDirection="row" gap={2} alignItems="center">
+              {planer && journal && !nachschubVoll(v.repos[0]!) && (
+                <Button
+                  key={`planer-${v.quelle}`}
+                  label="Planer jetzt (Nachschub)"
+                  onPress={() => void fuehreAus($, `planer-${v.quelle}`, () => planerJetzt($, v.quelle, journal))}
+                />
+              )}
+              {planer && journal && nachschubVoll(v.repos[0]!) && <Text dimColor>Nachschub für heute verbraucht</Text>}
+              <Link href={ALLE_LAEUFE} label="Alle Läufe" />
+            </Box>
+          )}
+          {rueckmeldung(`planer-${v.quelle}`)}
         </Box>
       )
     }
@@ -1736,11 +1785,28 @@ export const register: Register = on => {
       const inArbeit = r.auftraege.filter(a => ['in Arbeit', 'im Review', 'Nacharbeit', 'wird gemergt'].includes(a.phase))
       const bereit = r.auftraege.filter(x => x.phase === 'freigegeben')
       const vorschlaege = r.auftraege.filter(x => x.phase === 'Vorschlag' && x.issue)
+      // Starten nur, wo der Worker eine Routine ist und gerade nicht laeuft
+      const workerRt = rolle(r, 'Worker')
+      const workerJetzt = workerRt?.triggerId && !workerRt.laeufe[0]?.isRunning ? workerRt : undefined
+      const verwerfenKnopf = (id: string) => (
+        <Button key={`verwerfen-${id}`} dimColor label="Verwerfen" onPress={() => update($, aktion, () => ({ id, status: 'frage' as const, text: 'verwerfen' }))} />
+      )
+      const verwerfenFrage = (id: string) => {
+        if (a?.id !== id || a.status !== 'frage' || a.text !== 'verwerfen') return undefined
+        const n = Number(id.split('#').pop())
+        return (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Text>{`#${n} als not planned schließen?`}</Text>
+            <Button key={`ja-verwerfen-${id}`} label="Ja, verwerfen" onPress={() => void fuehreAus($, id, () => verwerfen($, r.repo, n))} />
+            <Button key={`nein-verwerfen-${id}`} label="Abbrechen" onPress={() => update($, aktion, () => null)} />
+          </Box>
+        )
+      }
       const mechanisch = r.faelle.filter(x => x.mechanisch)
       const worker = rolle(r, 'Worker')
       const d = r.digest
       const abschnitt = (titel: string, inhalt: RenderChildren[]) =>
-        inhalt.length > 0 && (
+        inhalt.filter(Boolean).length > 0 && (
           <Box flexDirection="column">
             {ueberschrift(titel)}
             {inhalt}
@@ -1773,12 +1839,35 @@ export const register: Register = on => {
                 </Box>
               )),
             )}
-            {abschnitt(
-              'Bereit',
-              bereit.map(x => (
-                <Link href={x.issue?.url ?? ''} label={kurz(auftragTitel(x), 64)} />
-              )),
-            )}
+            {abschnitt('Bereit', [
+              ...bereit.map(x => {
+                const n = x.issue?.number ?? 0
+                const id = `${r.repo}#${n}`
+                return (
+                  <Box key={`bereit-${id}`} flexDirection="column">
+                    <Link href={x.issue?.url ?? ''} label={kurz(auftragTitel(x), 64)} />
+                    {verwerfenFrage(id) ?? (
+                      <Box flexDirection="row" gap={1}>
+                        <Button key={`zurueck-${id}`} dimColor label="Zurückstellen" onPress={() => void fuehreAus($, id, () => zurueckstellen($, r.repo, n))} />
+                        {verwerfenKnopf(id)}
+                      </Box>
+                    )}
+                    {rueckmeldung(id)}
+                  </Box>
+                )
+              }),
+              workerJetzt && bereit.length > 0 && (
+                <Box key={`worker-${r.repo}`} flexDirection="column">
+                  <Button
+                    key={`worker-${r.repo}`}
+                    variant="primary"
+                    label="Worker jetzt starten"
+                    onPress={() => void fuehreAus($, `worker-${r.repo}`, () => routineJetzt($, workerJetzt))}
+                  />
+                  {rueckmeldung(`worker-${r.repo}`)}
+                </Box>
+              ),
+            ])}
             {abschnitt(
               'Vorschläge',
               vorschlaege.map(x => {
@@ -1786,12 +1875,15 @@ export const register: Register = on => {
                 const id = `${r.repo}#${n}`
                 return (
                   <Box key={`vorschlag-${id}`} flexDirection="column">
-                    <Box flexDirection="row" justifyContent="space-between" gap={1}>
-                      <Link href={x.issue?.url ?? ''} label={kurz(auftragTitel(x), 56)} />
-                      {r.stufe !== 'trockenlauf' && (
-                        <Button key={`vorschlag-${id}`} label="Freigeben" onPress={() => void fuehreAus($, id, () => vorschlagFrei($, r.repo, n))} />
-                      )}
-                    </Box>
+                    <Link href={x.issue?.url ?? ''} label={kurz(auftragTitel(x), 64)} />
+                    {verwerfenFrage(id) ?? (
+                      <Box flexDirection="row" gap={1}>
+                        {r.stufe !== 'trockenlauf' && (
+                          <Button key={`vorschlag-${id}`} label="Freigeben" onPress={() => void fuehreAus($, id, () => vorschlagFrei($, r.repo, n))} />
+                        )}
+                        {verwerfenKnopf(id)}
+                      </Box>
+                    )}
                     {rueckmeldung(id)}
                   </Box>
                 )

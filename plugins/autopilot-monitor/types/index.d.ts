@@ -18,7 +18,8 @@ export type Lauf = {
 }
 
 // naechster: geplanter naechster Lauf (ms), wo die Routine einen Zeitplan hat
-export type Routine = { rolle: string; url?: string; laeufe: Lauf[]; naechster?: number; fehler?: string }
+// triggerId: die Routine auf claude.ai, wo es eine ist (die Reviewer-Action hat keine)
+export type Routine = { rolle: string; url?: string; triggerId?: string; laeufe: Lauf[]; naechster?: number; fehler?: string }
 
 // Ein offener needs-human-Fall oder eine offene Entscheidung; Issue und zugehoeriger PR sind ein Fall
 export type Fall = {
