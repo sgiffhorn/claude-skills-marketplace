@@ -27,15 +27,18 @@ deckel:
   budget_woche_vorlauf: 10
   # Planer-Laeufe ausser der Reihe, wenn der Worker in keinem Repo Arbeit findet (Label autopilot:nachschub)
   nachschub_pro_tag: 3
+  # Scout: neue Ideen-Issues je Lauf, offene autopilot:idee ueber alle Repos (erreicht: keine neuen), gelesene Dateien je Lauf
+  ideen_pro_lauf: 5
+  offene_ideen: 30
+  scout_dateien_pro_lauf: 8
   # Vorgaben fuer Repos, deren Datei den Schluessel nicht setzt (nicht fuer den Review-Workflow)
   wip_begleitet: 1
-  inventur_tage: 30
   gate_fehlschlaege: 2
   wip_timeout_stunden: 6
 ---
 
 # Autopilot: Zentrale
 
-Gelesen von den Skills `autopilot-plan`, `autopilot-work` und `autopilot-chat` (Plugin `autopilot`), wenn der Routine-Prompt `Zentrale: OWNER/META` nennt. Die Kopfzeile ist maschinenlesbar.
+Gelesen von den Skills `autopilot-plan`, `autopilot-scout`, `autopilot-work` und `autopilot-chat` (Plugin `autopilot`), wenn der Routine-Prompt `Zentrale: OWNER/META` nennt. Die Kopfzeile ist maschinenlesbar.
 
-Die Routinen für Planer, Worker und Chat haben dieses Repo und jedes Repo aus `repos:` (dazu dessen `zweit_repos`) als Quelle; die Cloud klont sie nach `/home/user/<name>`. Dieses Repo ist kein Arbeitsrepo: der Planer legt hier keine Aufträge an, außer es steht selbst in `repos:`.
+Die Routinen für Planer, Scout, Worker und Chat haben dieses Repo und jedes Repo aus `repos:` (dazu dessen `zweit_repos`) als Quelle; die Cloud klont sie nach `/home/user/<name>`. Dieses Repo ist kein Arbeitsrepo: der Planer legt hier keine Aufträge an, außer es steht selbst in `repos:`.
