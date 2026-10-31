@@ -32,6 +32,8 @@ export type Fall = {
   mechanisch: boolean
   // Issue mit autopilot:entscheidung; grund ist dann die Frage des Planers
   entscheidung?: boolean
+  // Der Reviewer gibt den PR in Stufe begleitet frei ("Urteil: wuerde mergen")
+  merge?: boolean
 }
 
 export type Digest = {
@@ -85,6 +87,6 @@ export type Stand = { at: number; repos: RepoSicht[]; isLoading: boolean; fehler
 
 declare module 'claude-code' {
   interface PluginState {
-    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null; fenster: Fenster[] }
+    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null; fenster: Fenster[]; aufgeklappt: string | null }
   }
 }

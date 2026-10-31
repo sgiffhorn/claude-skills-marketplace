@@ -112,7 +112,7 @@ const PANE = {
 const zustand = (stand: unknown) => ($: unknown, e: { key: string }, next: (e: unknown) => unknown) =>
   e.key === 'stand' ? { value: { value: { shape: 'stand-3', value: stand }, version: 1 } } : next(e)
 
-test('das Panel zeigt die Abschnitte des Mockups auf jeder Oberflaeche', async ($, on) => {
+test('ohne Zentrale zeigt das Panel Kopf, Braucht dich, Deckel, Repo-Zeile und Auffaelliges', async ($, on) => {
   const uhr = mock.clock(on)
   await uhr.set(AT)
   on('state.get', zustand(STAND))
@@ -120,41 +120,66 @@ test('das Panel zeigt die Abschnitte des Mockups auf jeder Oberflaeche', async (
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     const find = (text: RegExp) => ui.find({ type: 'Text', text })
-    // Kopf und Chips
-    expect(await find(/autonom · 09:34 CET/)).toBeTruthy()
-    expect(await find(/Worker wartet/)).toBeTruthy()
-    expect(await find(/Warteschlange leer/)).toBeTruthy()
-    expect(await find(/Nachschub 3\/3 verbraucht/)).toBeTruthy()
-    // Braucht dich: nur der echte Fall, die mechanischen grau
-    expect(await find(/Braucht dich · 1/)).toBeTruthy()
-    expect(await find(/#21 Beispielauftrag 21/)).toBeTruthy()
-    expect(await find(/#22 Beispielauftrag 22/)).toBeFalsy()
-    expect(await find(/Repariert sich selbst/)).toBeTruthy()
-    expect(await find(/nächster Worker 09:55/)).toBeTruthy()
-    expect(await ui.find({ type: 'Link', text: '#31' })).toBeTruthy()
+    // Kopf
+    expect(await find(/^Autopilot$/)).toBeTruthy()
+    expect(await find(/^repo · Journal #1 · 09:34 CET$/)).toBeTruthy()
+    // Braucht dich: nur der echte Fall, mit Art
+    expect(await find(/BRAUCHT DICH · 1/)).toBeTruthy()
+    expect(await find(/^needs-human$/)).toBeTruthy()
     expect(await ui.find({ type: 'Link', text: 'Im Journal antworten' })).toBeTruthy()
-    // Digest
-    expect(await find(/SEIT GESTERN 09:00/)).toBeTruthy()
-    expect(await find(/^Tests, Code$/)).toBeTruthy()
-    expect(await find(/und 5 weitere/)).toBeTruthy()
-    expect(await find(/Autopilot selbst: 1 Änderung$/)).toBeTruthy()
-    expect(await find(/Beispielvorfall, erledigt/)).toBeTruthy()
-    // Auffaellig
-    expect(await find(/Worker seit 04:55 ohne Arbeit/)).toBeTruthy()
-    expect(await find(/schon um 03:34 erreicht, nächster Planer 12:54/)).toBeTruthy()
-    expect(await find(/Planer 2× ohne Wirkung geweckt/)).toBeTruthy()
-    expect(await find(/WIP-Deckel/)).toBeFalsy()
-    // Deckel und Budget, ohne den alten Worker-Tageswert
-    expect(await find(/^Nachschub heute$/)).toBeTruthy()
+    expect(await find(/^repo#21$/)).toBeTruthy()
+    expect(await find(/Die Schnittstelle liefert das Feld nicht/)).toBeTruthy()
+    expect(await find(/repo#22/)).toBeFalsy()
+    // Deckel und Rollen
+    expect(await find(/^DECKEL UND ROLLEN$/)).toBeTruthy()
     expect(await find(/^0 von 4$/)).toBeTruthy()
-    expect(await find(/Worker \d+\/\?/)).toBeFalsy()
-    // Rollen
-    expect(await find(/zuletzt 08:56, Warteschlange leer.* · nächster 09:55/)).toBeTruthy()
-    expect(await find(/zuletzt 09:16, Frage beantwortet\./)).toBeTruthy()
-    expect(await find(/zuletzt 08:34, Kein Nachschub-Lauf/)).toBeTruthy()
+    expect(await find(/^Nachschub heute$/)).toBeTruthy()
+    expect(await find(/^zuletzt 08:56 · nächster 09:55$/)).toBeTruthy()
+    expect(await find(/^zuletzt 08:34 · nächster 12:54$/)).toBeTruthy()
+    expect(await find(/^zuletzt 09:16$/)).toBeTruthy()
     expect(await ui.find({ type: 'Link', text: 'Alle Läufe' })).toBeTruthy()
+    // Repo-Zeile eingeklappt
+    expect(await ui.find({ type: 'Button', key: 'repo-beispiel/repo' })).toBeTruthy()
+    expect(await find(/^1 wartet$/)).toBeTruthy()
+    expect(await find(/^7 gemergt$/)).toBeTruthy()
+    expect(await find(/^autonom · 0 in Arbeit · 0 bereit · 1 Vorschläge$/)).toBeTruthy()
+    expect(await find(/WARTET AUF DICH/)).toBeFalsy()
+    // Auffaellig als Saetze, ohne Repo davor
+    expect(await find(/^Worker seit 04:55 ohne Arbeit\. Nachschub-Deckel schon um 03:34 erreicht, nächster Planer 12:54\.$/)).toBeTruthy()
+    expect(await find(/^Planer 2× ohne Wirkung geweckt\. Vermutlich/)).toBeTruthy()
+    expect(await find(/WIP-Deckel/)).toBeFalsy()
     await ui.unmount()
   }
+})
+
+test('ein aufgeklapptes Repo zeigt Details, Braucht dich und Deckel schrumpfen auf je eine Zeile', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(STAND))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const find = (text: RegExp) => ui.find({ type: 'Text', text })
+  await ui.press({ key: 'repo-beispiel/repo' })
+  expect(await find(/eingeklappt, weil ein Repo offen ist/)).toBeTruthy()
+  expect(await find(/^Braucht dich · 1$/)).toBeTruthy()
+  expect(await find(/^WIP 0 von 4$/)).toBeTruthy()
+  expect(await find(/^● 3 Rollen ok$/)).toBeTruthy()
+  expect(await find(/^DECKEL UND ROLLEN$/)).toBeFalsy()
+  expect(await find(/^autonom · WIP 0 von 4$/)).toBeTruthy()
+  expect(await find(/^WARTET AUF DICH$/)).toBeTruthy()
+  expect(await ui.find({ type: 'Link', text: '#21 Beispielauftrag 21' })).toBeTruthy()
+  expect(await find(/Repariert sich selbst/)).toBeTruthy()
+  expect(await find(/nächster Worker 09:55/)).toBeTruthy()
+  expect(await ui.find({ type: 'Link', text: '#31' })).toBeTruthy()
+  expect(await find(/^GEMERGT SEIT GESTERN 09:00$/)).toBeTruthy()
+  expect(await find(/^Features 2 · Tests, Code 3 · Doku 2 · Autopilot 1$/)).toBeTruthy()
+  expect(await find(/Beispielvorfall, erledigt/)).toBeTruthy()
+  expect(await ui.find({ type: 'Link', text: 'Review-Läufe' })).toBeTruthy()
+  // Zweiter Druck klappt wieder zu
+  await ui.press({ key: 'repo-beispiel/repo' })
+  expect(await find(/WARTET AUF DICH/)).toBeFalsy()
+  expect(await find(/BRAUCHT DICH · 1/)).toBeTruthy()
+  await ui.unmount()
 })
 
 const BAND = {
@@ -213,20 +238,55 @@ test('ohne echte Faelle und ohne Auffaelliges bleibt das Band leer', async ($, o
   await ui.unmount()
 })
 
-test('mit Zentrale zeigt das Panel die WIP-Summe gegen den globalen Deckel', async ($, on) => {
+test('mit Zentrale zeigt das Panel alle Faelle, globale Deckel einmal und je Repo eine Zeile', async ($, on) => {
   const uhr = mock.clock(on)
   await uhr.set(AT)
-  const zentral = {
-    ...STAND,
-    repos: [{ ...STAND.repos[0], zentrale: 'beispiel/meta', wip: 1, wipDeckel: undefined, wipAlle: 3, wipAlleDeckel: 4 }],
+  const Z = 'https://github.com/beispiel/zwei'
+  const eins = { ...STAND.repos[0], zentrale: 'beispiel/meta', wip: 0, wipDeckel: undefined, wipAlle: 1, wipAlleDeckel: 4, ideen: 2, ideenAlle: 2, ideenDeckel: 30 }
+  const zwei = {
+    ...eins,
+    repo: 'beispiel/zwei',
+    stufe: 'begleitet',
+    wip: 1,
+    wipDeckel: 1,
+    ideen: 0,
+    auftraege: [{ phase: 'in Arbeit', issue: { number: 43, title: 'Beispielauftrag 43', url: `${Z}/issues/43` } }],
+    faelle: [
+      { nummer: 44, titel: 'Doku: Beispiel', url: `${Z}/issues/44`, pr: { number: 45, url: `${Z}/pull/45` }, grund: 'Urteil: würde mergen.', mechanisch: false, merge: true },
+      { nummer: 46, titel: 'Beispielfrage', url: `${Z}/issues/46`, grund: 'Welcher Weg?', mechanisch: false, entscheidung: true },
+    ],
+    digest: { ...STAND.repos[0].digest, gemergt: 1 },
+    fehler: [],
   }
-  on('state.get', zustand(zentral))
+  on('state.get', zustand({ ...STAND, repos: [eins, zwei] }))
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ type: 'Text', text: /^WIP alle Repos$/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^3 von 4, hier 1$/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /^WIP$/ })).toBeFalsy()
+    const find = (text: RegExp) => ui.find({ type: 'Text', text })
+    expect(await find(/^Zentrale meta · Journal #1 · 09:34 CET$/)).toBeTruthy()
+    expect(await find(/BRAUCHT DICH · 3/)).toBeTruthy()
+    expect(await find(/^zwei#45$/)).toBeTruthy()
+    expect(await find(/^Doku: Beispiel\. Reviewer: Urteil: würde mergen\.$/)).toBeTruthy()
+    expect(await find(/^zwei#46$/)).toBeTruthy()
+    expect(await find(/^Merge$/)).toBeTruthy()
+    expect(await find(/^Entscheidung$/)).toBeTruthy()
+    // Globale Deckel einmal
+    expect(await ui.findAll({ type: 'Text', text: /^ALLE REPOS$/ })).toHaveLength(1)
+    expect(await find(/^1 von 4$/)).toBeTruthy()
+    expect(await find(/^2 von 30$/)).toBeTruthy()
+    // Je Repo eine Zeile
+    expect(await find(/^2 wartet$/)).toBeTruthy()
+    expect(await find(/^begleitet · 1 in Arbeit · 0 bereit · 0 Vorschläge$/)).toBeTruthy()
+    // Was die Zentrale betrifft, steht einmal und ohne Repo davor
+    expect(await ui.findAll({ type: 'Text', text: /^Worker seit 04:55 ohne Arbeit/ })).toHaveLength(1)
     await ui.unmount()
   }
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'repo-beispiel/zwei' })
+  expect(await ui.find({ type: 'Text', text: /^begleitet · WIP 1 von 1 \(begleitet\) · Reviewer mergt nicht$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^WIP 1 von 4 · Ideen 2 von 30$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Link', text: '#43 Beispielauftrag 43' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Braucht dich · 3$/ })).toBeTruthy()
+  await ui.unmount()
 })

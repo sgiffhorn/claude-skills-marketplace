@@ -1,7 +1,7 @@
 {
   "name": "autopilot-monitor",
-  "description": "Panel neben dem Chat: was den Menschen braucht, Digest seit gestern 09:00, Auffaelliges, Deckel und letzter Lauf je Rolle.",
-  "version": "0.5.1",
+  "description": "Panel neben dem Chat: was den Menschen braucht, Deckel und Rollen ueber alle Repos, je Repo eine aufklappbare Zeile, Auffaelliges.",
+  "version": "0.6.0",
   "author": {
     "name": "Sebastian Giffhorn"
   },
