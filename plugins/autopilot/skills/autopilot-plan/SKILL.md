@@ -1,6 +1,6 @@
 ---
 name: autopilot-plan
-description: Planer-Lauf des Autopilots (Routine auf Zeitplan, außer der Reihe über das Label autopilot:nachschub am Journal-Issue). Liest .claude/autopilot.md, prüft den Label-Zustand, leitet Aufträge aus Issues und einem Sweep über die Doku des Repos und seiner Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
+description: Planer-Lauf des Autopilots (Routine auf Zeitplan, außer der Reihe über das Label autopilot:nachschub am Journal-Issue). Liest .claude/autopilot.md (zentral mit Repo-Liste oder eines Repos), prüft den Label-Zustand, leitet je Repo Aufträge aus Issues und einem Sweep über die Doku des Repos und seiner Zweit-Repos ab, schreibt bis zu N spezifizierte Issues (Klasse A bereit, Klasse B als Vorschlag), führt das Journal-Issue fort und endet sofort, wenn nichts ansteht. Nur in einem Repo mit .claude/autopilot.md aufrufen.
 ---
 
 # autopilot-plan
@@ -9,21 +9,21 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
 
 ## 0. Konfiguration lesen, sonst Ende
 
-1. Lies `.claude/autopilot.md` im Repo-Wurzelverzeichnis. Fehlt sie, gib eine Zeile aus („keine .claude/autopilot.md, Ende“) und beende den Lauf ohne jeden Schreibzugriff.
-2. Merke dir aus der Kopfzeile: `repo` (als `$REPO`), `default_branch`, `journal_issue`, `stufe`, `freigabe_b` (Vorgabe `mensch`), `deckel.*`, `sprache`, `zweit_repos` (Liste, darf fehlen). Aus dem Text: Sperrliste, Klassen, Planer-Quellen mit dem Umfang des Doku-Sweeps, Ausschluss-Labels, Doku- und Testpflicht.
-3. Zweit-Repos finden, nur lesen: Die Cloud klont jedes Repo aus den `sources` der Routine neben das eigene (`/home/user/<name>`, also `../<name>` vom Repo-Wurzelverzeichnis), und der GitHub-Proxy erlaubt `gh api repos/<owner>/<name>/…` nur für diese Repos. Fehlt `../<name>`, versuche `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zweit/<name>`. Scheitert auch das, steht das Repo nicht in den `sources`: im Journal unter „Braucht dich“ melden („Zweit-Repo <owner>/<name> nicht lesbar, in der Planer-Routine unter sources eintragen“) und ohne diese Quelle weiterplanen. In ein Zweit-Repo schreibst du nie, auch keine Issues; Aufträge landen immer in `$REPO`.
+1. **Modus:** Nennt der Routine-Prompt eine Zentrale (`Zentrale: <owner>/<name>`), läuft der Lauf zentral: Lies `/home/user/<name>/.claude/autopilot.md` (fehlt der Klon, `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zentrale/<name>`). Sie trägt `repos:` (geordnet, die Reihenfolge ist die Priorität), `journal_issue` und die globalen Deckel. Je Eintrag aus `repos:` liegt der Klon unter `/home/user/<name>` und darin die Repo-Datei `.claude/autopilot.md`. Ohne Zentrale im Prompt läuft der Lauf mit einem Repo: `.claude/autopilot.md` im Arbeitsverzeichnis ist Zentrale und Repo-Datei zugleich, `repos:` ist `[repo]`. Fehlt die Datei der Zentrale (bzw. im Ein-Repo-Modus die Repo-Datei), gib eine Zeile aus („keine .claude/autopilot.md, Ende“) und beende den Lauf ohne jeden Schreibzugriff.
+2. `$Z` ist das Repo der Zentrale (mit einem Repo `$REPO`), `$J` ist `journal_issue`. Journal, `plan-lock` und `autopilot:nachschub` liegen immer in `$Z`. Global, nur aus der Zentrale: `journal_issue`, `sprache`, die Deckel `wip`, `neue_auftraege_pro_planerlauf`, `offene_vorschlaege`, `pruefungen_pro_lauf`, `nachschub_pro_tag`, `budget_5h`, `budget_woche_vorlauf`. Je Repo aus seiner Repo-Datei: `repo`, `default_branch`, `stufe`, `freigabe_b` (Vorgabe `mensch`), `zweit_repos` (darf fehlen), die übrigen `deckel.*` (fehlt einer, gilt der Wert der Zentrale), aus dem Text Sperrliste, Klassen, Planer-Quellen mit dem Umfang des Doku-Sweeps, Ausschluss-Labels, Doku- und Testpflicht. Fehlt der Klon eines Repos aus `repos:` oder seine Repo-Datei, überspringst du es in diesem Lauf und meldest es im Journal unter „Braucht dich“ („<owner>/<name> nicht in den sources der Routine“ bzw. „keine .claude/autopilot.md“). `$REPO` steht im Folgenden für das Repo, das gerade dran ist; alles je Repo gilt für jedes Repo aus `repos:`.
+3. Zweit-Repos finden, nur lesen: Die Cloud klont jedes Repo aus den `sources` der Routine neben das eigene (`/home/user/<name>`, also `../<name>` vom Repo-Wurzelverzeichnis), und der GitHub-Proxy erlaubt `gh api repos/<owner>/<name>/…` nur für diese Repos. Fehlt `../<name>`, versuche `git clone --depth 1 https://github.com/<owner>/<name> /tmp/zweit/<name>`. Scheitert auch das, steht das Repo nicht in den `sources`: im Journal unter „Braucht dich“ melden („Zweit-Repo <owner>/<name> nicht lesbar, in der Planer-Routine unter sources eintragen“) und ohne diese Quelle weiterplanen. In ein Zweit-Repo schreibst du nie, auch keine Issues (einzige Ausnahme: das Journal in `$Z`); Aufträge landen immer in dem Repo aus `repos:`, für das sie gelten, nie in `$Z`, außer `$Z` steht selbst in `repos:`.
 4. Zeit immer in Europe/Berlin: `TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z'`. Tagesbeginn als UTC für API-Filter (als `$TAG`): `date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ`.
-5. **Nachschub:** Trägt das Journal-Issue `autopilot:nachschub` (`gh api repos/$REPO/issues/$J/labels`, `$J` ist `journal_issue`), nimm es sofort ab (`gh api -X DELETE repos/$REPO/issues/$J/labels/autopilot%3Anachschub`) und merke dir den Lauf als Nachschub-Lauf. Antwortet das DELETE mit 404, hat ein anderer Lauf es genommen: weiter wie ohne Label. Der Worker setzt das Label, wenn er keine Arbeit findet; ein Webhook-Auslöser startet damit diesen Lauf.
+5. **Nachschub:** Trägt das Journal-Issue `autopilot:nachschub` (`gh api repos/$Z/issues/$J/labels`), nimm es sofort ab (`gh api -X DELETE repos/$Z/issues/$J/labels/autopilot%3Anachschub`) und merke dir den Lauf als Nachschub-Lauf. Antwortet das DELETE mit 404, hat ein anderer Lauf es genommen: weiter wie ohne Label. Der Worker setzt das Label, wenn er keine Arbeit findet; ein Webhook-Auslöser startet damit diesen Lauf.
    - Hat ein GitHub-Ereignis den Lauf geweckt und ist er kein Nachschub-Lauf, Ende ohne Schreibzugriff (ein Ereignis ohne Label-Filter oder ein zweiter Weckruf für dasselbe Label).
    - Nachschub-Deckel: Laufzeilen des Planers von heute mit dem Vermerk „Nachschub“ zählen. Erreicht ihre Zahl `deckel.nachschub_pro_tag` (Vorgabe 3), schreibst du nur die Journalzeile („<Zeit> Nachschub: Deckel x von x erreicht, Ende“) und endest.
 
      ```
-     seiten repos/$REPO/issues/$J/comments -f since=$TAG | jq --arg tag "$TAG" '[.[]
+     seiten repos/$Z/issues/$J/comments -f since=$TAG | jq --arg tag "$TAG" '[.[]
        | select(.created_at >= $tag and (.body | startswith("<!-- autopilot:journal -->")) and (.body | test("Nachschub")))] | length'
      ```
 
    - Sonst läuft der Nachschub-Lauf wie jeder andere, mit denselben Regeln für Platz, Vorrat zuerst und Budget-Bremse.
-6. **Sperre gegen parallele Läufe:** Zwei Planer gleichzeitig legen dasselbe Thema doppelt an. Kommentar `<!-- autopilot:plan-lock -->` mit der Startzeit ins Journal schreiben, dann die Kommentare des Journals seit 30 Minuten neu lesen. Gibt es einen anderen `plan-lock` aus den letzten 30 Minuten mit kleinerer ID, zu dem noch keine jüngere Laufzeile `<!-- autopilot:journal -->` steht, läuft ein anderer Planer: den eigenen `plan-lock` löschen (`gh api -X DELETE repos/$REPO/issues/comments/<id>`), Ende ohne weiteren Schreibzugriff. Den eigenen `plan-lock` löschst du am Ende von Schritt 6 (Journal) wieder.
+6. **Sperre gegen parallele Läufe:** Zwei Planer gleichzeitig legen dasselbe Thema doppelt an. Kommentar `<!-- autopilot:plan-lock -->` mit der Startzeit ins Journal schreiben, dann die Kommentare des Journals seit 30 Minuten neu lesen. Gibt es einen anderen `plan-lock` aus den letzten 30 Minuten mit kleinerer ID, zu dem noch keine jüngere Laufzeile `<!-- autopilot:journal -->` steht, läuft ein anderer Planer: den eigenen `plan-lock` löschen (`gh api -X DELETE repos/$Z/issues/comments/<id>`), Ende ohne weiteren Schreibzugriff. Den eigenen `plan-lock` löschst du am Ende von Schritt 6 (Journal) wieder.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
 
@@ -84,14 +84,14 @@ Jeder Text, den eine Autopilot-Rolle schreibt, beginnt mit einem HTML-Kommentar.
 
 ## 1. Lagebild (nur lesen)
 
-Sammle, ohne etwas zu schreiben:
+Sammle, ohne etwas zu schreiben, je Repo aus `repos:` und in Summe:
 
-- **WIP:** offene Issues mit `autopilot:wip` (bleibt bis zum Merge am Issue, auch während Review und Nacharbeit). Deckel ist `deckel.wip`, in Stufe `begleitet` `deckel.wip_begleitet`.
+- **WIP:** offene Issues mit `autopilot:wip` (bleibt bis zum Merge am Issue, auch während Review und Nacharbeit). Der Deckel `deckel.wip` gilt für die Summe über alle Repos; ein Repo in Stufe `begleitet` hat zusätzlich seinen eigenen Deckel `deckel.wip_begleitet`.
 - **Warteschlange:** offene Issues mit `autopilot:ready`, offene Issues mit `autopilot:proposed`.
 - **needs-human:** offene Issues und PRs mit `needs-human`. Hat eines einen Kommentar ohne Marker, der jünger ist als der letzte Marker-Kommentar, liegt eine Antwort vor.
 - **Fragen an Aufträgen:** offene Issues mit `autopilot:proposed` oder `autopilot:ready` (ohne `autopilot:wip`), deren jüngster Kommentar keinen Marker hat und eine Frage enthält (ein `?` oder beginnt mit `**Frage:**`). Kommentare, die mit `**Ergänzung:**` beginnen oder keine Frage enthalten, sind Ergänzungen und brauchen keine Antwort.
 - **Gemergt:** geschlossene PRs mit Head `claude/autopilot-*` und `merged_at` in den letzten 7 Tagen.
-- **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker) und `<!-- autopilot:journal -->` (Planer), gezählt nach `created_at`. Ein `work-start`, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt, hat ein Rennen verloren und zählt nicht, wie beim Deckel im Worker:
+- **Läufe heute:** Kommentare seit Tagesbeginn mit `<!-- autopilot:work-start -->` (Worker, je Repo, dann summiert) und `<!-- autopilot:journal -->` (Planer, im Journal in `$Z`), gezählt nach `created_at`. Ein `work-start`, vor dem am selben Issue ein `work-start` mit kleinerer ID in den 15 Minuten davor liegt, hat ein Rennen verloren und zählt nicht, wie beim Deckel im Worker:
 
   ```
   TAG=$(date -u -d "TZ=\"Europe/Berlin\" $(TZ=Europe/Berlin date +%F) 00:00" +%FT%TZ)
@@ -115,9 +115,11 @@ Sammle, ohne etwas zu schreiben:
       else "gas: 5h \($h | floor) %, Woche \($w | floor) %, Soll \($soll | floor) %" end' <<<"$budget"
   ```
 
-- **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `journal_issue`: Sweep-Stand je Repo, Datum der letzten Inventur, letzter Bereich, Vorrat (geprüfte Kandidaten ohne Platz) und „bewertet, nicht übernommen“ mit Grund.
+- **Gedächtnis:** den Abschnitt „Planer-Gedächtnis“ im Text des Journal-Issues `$Z#$J`: Sweep-Stand je Repo, Datum der letzten Inventur, letzter Bereich, Vorrat (geprüfte Kandidaten ohne Platz) und „bewertet, nicht übernommen“ mit Grund.
 
 ## 2. Hygiene
+
+Je Repo aus `repos:`:
 
 - Ein Issue mit `autopilot:wip`, dessen letzter `work-start`-Kommentar älter ist als `deckel.wip_timeout_stunden` und zu dem kein offener PR mit Head `claude/autopilot-<n>` existiert: Kommentar mit Marker `needs-human` („Worker-Lauf seit <Zeit> ohne Ergebnis“), `autopilot:wip` nehmen, `needs-human` setzen.
 - Ein offenes Issue mit `autopilot:wip`, dessen PR mit Head `claude/autopilot-<n>` gemergt ist: `autopilot:wip` nehmen und das Issue schließen (`gh api -X PATCH repos/$REPO/issues/$N -f state=closed -f state_reason=completed`). Das schließt sonst der Review-Workflow; ist dort ein API-Aufruf gescheitert, räumst du nach, ohne es zu melden.
@@ -136,18 +138,22 @@ Im Journal unter „Vorschläge zur Freigabe“ bekommt ein so beantwortetes Iss
 
 ## 3. Platz für neue Aufträge
 
-- **Klasse A** (`autopilot:ready`): nur, solange WIP plus wartende `autopilot:ready` unter dem WIP-Deckel liegen.
+Alle Plätze gelten für die Summe über alle Repos.
+
+- **Klasse A** (`autopilot:ready`): nur, solange WIP plus wartende `autopilot:ready` unter dem WIP-Deckel liegen; für ein Repo in Stufe `begleitet` zusätzlich unter seinem `deckel.wip_begleitet`.
 - **Klasse B** (`autopilot:proposed`): bis `deckel.offene_vorschlaege` minus der schon offenen Vorschläge. Ein voller WIP-Deckel sperrt Vorschläge nicht, sie belegen keinen Worker. Mit `freigabe_b: auto` gilt für Klasse B derselbe Platz wie für Klasse A, denn sie geht direkt auf `autopilot:ready`.
 - Beides zusammen höchstens `deckel.neue_auftraege_pro_planerlauf` je Lauf.
+
+**Mindestplatz:** Mit mehr als einem Repo bekommt jedes Repo aus `repos:`, das in diesem Lauf einen geprüften Kandidaten hat, mindestens einen der Plätze dieses Laufs, sofern es für dessen Klasse überhaupt Platz gibt. Die übrigen Plätze gehen in der Reihenfolge von `repos:`. So bekommt ein Repo weiter hinten in der Liste nicht nie etwas.
 
 Ohne Platz läuft der Doku-Sweep trotzdem, wenn er etwas zu tun hat (Inventur fällig oder Dokumente geändert): seine Ergebnisse gehen in den Vorrat. Issues und Bereichs-Review entfallen dann.
 
 ## 4. Kandidaten suchen
 
-Die Quellen und ihre Reihenfolge stehen in `.claude/autopilot.md` unter „Planer-Quellen“. Arbeite alle Quellen ab, auch wenn die erste schon Kandidaten liefert, und wähle danach aus (Schritt 5). Für jede gilt:
+Je Repo in der Reihenfolge von `repos:`, im Klon dieses Repos. Die Quellen und ihre Reihenfolge stehen in seiner Repo-Datei unter „Planer-Quellen“. `deckel.pruefungen_pro_lauf` gilt für den ganzen Lauf; reicht er nicht für alle Repos, prüfe zuerst je Repo die Kandidaten, die für den Mindestplatz nötig sind. Arbeite alle Quellen ab, auch wenn die erste schon Kandidaten liefert, und wähle danach aus (Schritt 5). Für jede gilt:
 
 - Übergehe Issues mit einem `autopilot:*`-Label, mit einem Ausschluss-Label, mit einem offenen PR auf `claude/autopilot-<n>`, und Issues aus der Liste „bewertet, nicht übernommen“, sofern sie seither nicht geändert wurden (`updated_at`).
-- Vor jedem neuen Issue eine Dublettensuche über offene und geschlossene Issues. `search/issues` liefert im Cloud-Lauf 403: die Titelliste direkt vor jedem Anlegen neu nach `/tmp/titel.txt` holen (Tabelle oben; ein paralleler Lauf kann gerade angelegt haben) und mit `grep -i -E '<Stichwort>|<Synonym>' /tmp/titel.txt` durchsuchen. Zusätzlich die Specs offener Issues mit `autopilot:*`-Label und der in den letzten 7 Tagen geschlossenen auf dieselbe **Quelle** prüfen (gleiche Datei und gleicher Abschnitt, oder gleiche Datei und Funktion): Titel können sich unterscheiden, die Quelle nicht. Gibt es das Thema schon, kein neues Issue.
+- Vor jedem neuen Issue eine Dublettensuche über offene und geschlossene Issues des Repos, in dem es landet. `search/issues` liefert im Cloud-Lauf 403: die Titelliste direkt vor jedem Anlegen neu nach `/tmp/titel.txt` holen (Tabelle oben; ein paralleler Lauf kann gerade angelegt haben) und mit `grep -i -E '<Stichwort>|<Synonym>' /tmp/titel.txt` durchsuchen. Zusätzlich die Specs offener Issues mit `autopilot:*`-Label und der in den letzten 7 Tagen geschlossenen auf dieselbe **Quelle** prüfen (gleiche Datei und gleicher Abschnitt, oder gleiche Datei und Funktion): Titel können sich unterscheiden, die Quelle nicht. Gibt es das Thema schon, kein neues Issue.
 - Beim Bereichs-Review im Umlauf genau einen Bereich je Lauf ansehen, den nächsten nach „letzter Bereich“, und höchstens 2 Befunde daraus aufnehmen.
 - Lies den Code, bevor du einen Befund behauptest. Ein Auftrag ohne geprüften Befund ist schlechter als keiner.
 
@@ -155,7 +161,7 @@ Die Quellen und ihre Reihenfolge stehen in `.claude/autopilot.md` unter „Plane
 
 Der Sweep sieht in jedem Lauf den ganzen Doku-Bestand, nicht ein Dokument. Er liest nur Text, der Code-Abgleich kommt danach für eine begrenzte Auswahl.
 
-1. **Umfang:** die Dokumente aus „Planer-Quellen“ in `.claude/autopilot.md` (Globs, Index-Tabellen, `§`-Einschränkungen), je Zweit-Repo dessen Liste. Pfade unter `archive/` und `archiv/` fallen heraus.
+1. **Umfang:** die Dokumente aus „Planer-Quellen“ in der Repo-Datei (Globs, Index-Tabellen, `§`-Einschränkungen), je Zweit-Repo dessen Liste. Pfade unter `archive/` und `archiv/` fallen heraus.
 2. **Modus:**
    - **Inventur**, wenn das Gedächtnis keinen Sweep-Stand hat oder die letzte Inventur älter ist als `deckel.inventur_tage` (Vorgabe 30): der ganze Umfang.
    - **Änderungen** sonst: nur Dateien im Umfang, die sich seit dem Sweep-Stand geändert haben, je Repo `git log --name-only --format= <sha>..HEAD -- <pfade> | sort -u`. Ist der Klon flach (`git rev-parse --is-shallow-repository`), vorher `git fetch --shallow-since=<Datum des Sweep-Stands>`; fehlt der Stand-SHA danach immer noch, gilt der Lauf als Inventur.
@@ -172,7 +178,7 @@ Geprüfte Kandidaten, die in diesem Lauf keinen Platz bekommen, kommen in den Vo
 
 ## 5. Klassifizieren, auswählen und spezifizieren
 
-**Klasse** nach `.claude/autopilot.md`:
+**Klasse** nach der Repo-Datei des Repos:
 
 - **C:** berührt die Sperrliste, auch nur am Rand, oder braucht eine Entscheidung aus „nie automatisch“. Kein Auftrag. Ein bestehendes Issue kommt mit Grund in „bewertet, nicht übernommen“.
 - **A:** passt in eine Klasse-A-Kategorie und berührt die Sperrliste nicht.
@@ -180,7 +186,7 @@ Geprüfte Kandidaten, die in diesem Lauf keinen Platz bekommen, kommen in den Vo
 
 **Größe:** S (eine Stelle, unter 100 Zeilen), M (unter `deckel.diff_zeilen` Diff ohne Testdateien), L (mehr). L wird vorher in mehrere S/M-Aufträge geteilt; jeder Teil zählt gegen den Deckel. Ein Auftrag hat genau ein Ziel: zwei Teile, die einzeln nutzbar sind (etwa Oberfläche und Verwaltung), sind zwei Aufträge. Schätze nach Dateien und Schichten, nicht nach dem Gefühl; im Zweifel L.
 
-**Auswahl** im Platz aus Schritt 3: Bugs mit Repro zuerst, dann Kandidaten aus Issues, dann der Vorrat, dann neue aus dem Sweep. Gibt es einen Klasse-B-Kandidaten und Platz für Klasse B, bekommt er mindestens einen der Plätze, auch wenn Klasse-A-Kandidaten alle füllen könnten. Einen umsetzbaren Klasse-B-Kandidaten hältst du nicht aus Vorsicht zurück: der Vorschlag kostet nichts, der Mensch entscheidet per Label. Was keinen Platz bekommt, geht in den Vorrat, nicht in „bewertet, nicht übernommen“.
+**Auswahl** im Platz aus Schritt 3: erst der Mindestplatz je Repo, dann in der Reihenfolge von `repos:`, je Repo Bugs mit Repro zuerst, dann Kandidaten aus Issues, dann der Vorrat, dann neue aus dem Sweep. Gibt es einen Klasse-B-Kandidaten und Platz für Klasse B, bekommt er mindestens einen der Plätze, auch wenn Klasse-A-Kandidaten alle füllen könnten. Einen umsetzbaren Klasse-B-Kandidaten hältst du nicht aus Vorsicht zurück: der Vorschlag kostet nichts, der Mensch entscheidet per Label. Was keinen Platz bekommt, geht in den Vorrat, nicht in „bewertet, nicht übernommen“.
 
 **Spec-Gerüst** (Issue-Text bei neuen Issues, Kommentar bei bestehenden, beide mit Marker `<!-- autopilot:spec -->` in der ersten Zeile):
 
@@ -199,7 +205,7 @@ Geprüfte Kandidaten, die in diesem Lauf keinen Platz bekommen, kommen in den Vo
 
 Ein Worker, der dieses Repo nicht kennt, muss allein damit fertig werden. Jede Review-Runde kostet zwei Läufe, die Spec ist der größte Hebel.
 
-**Label je Stufe:**
+**Label je Stufe** (die `stufe` des Repos):
 
 | Stufe | Klasse A | Klasse B |
 |---|---|---|
@@ -207,11 +213,11 @@ Ein Worker, der dieses Repo nicht kennt, muss allein damit fertig werden. Jede R
 | `begleitet` | `autopilot:ready` | `autopilot:proposed` |
 | `autonom` | `autopilot:ready` | `autopilot:proposed`, mit `freigabe_b: auto` `autopilot:ready` |
 
-`autopilot:ready` an Klasse B setzt sonst nur der Mensch. Ohne `freigabe_b: auto` setzt du es dort nie, auch nicht an einem bestehenden Vorschlag. Mit `freigabe_b: auto` gibst du in Stufe `autonom` auch offene Vorschläge frei: `autopilot:proposed` nehmen, `autopilot:ready` setzen, im Rahmen des Platzes für Klasse A, die ältesten zuerst.
+`autopilot:ready` an Klasse B setzt sonst nur der Mensch. Ohne `freigabe_b: auto` setzt du es dort nie, auch nicht an einem bestehenden Vorschlag. Mit `freigabe_b: auto` (je Repo) gibst du in Stufe `autonom` auch offene Vorschläge frei: `autopilot:proposed` nehmen, `autopilot:ready` setzen, im Rahmen des Platzes für Klasse A, die ältesten zuerst.
 
 ## 6. Journal fortschreiben (jeder Lauf, auch Leerlauf)
 
-**Text des Journal-Issues ersetzen** (`PATCH`), Gerüst:
+**Text des Journal-Issues `$Z#$J` ersetzen** (`PATCH repos/$Z/issues/$J`), Gerüst. Mit mehr als einem Repo steht jede Nummer als `<owner>/<name>#n` (GitHub verlinkt nur so über Repos hinweg), und die Stufe steht je Repo in der Stand-Zeile:
 
 ```
 <!-- autopilot:journal-body -->
@@ -233,16 +239,16 @@ Stand: <Datum Zeit CET/CEST>, Stufe: <stufe>
 Worker-Läufe x, Planer-Läufe y (davon Nachschub z von <deckel>), WIP x von <deckel>, Budget: 5h x %, Woche y % (Soll z %)
 
 ### Planer-Gedächtnis
-Sweep-Stand: <repo> <sha> <Datum>; <zweit-repo> <sha> <Datum>
+Sweep-Stand: <repo> <sha> <Datum>; <zweit-repo> <sha> <Datum> (je Repo aus `repos:` und je Zweit-Repo)
 Inventur: <Datum> (abgeschlossen | offen, n Kandidaten ungeprüft)
 Letzter Bereich: <Zeile der Landkarte>
 Vorrat:
-- A|B S|M <Pfad> § <Abschnitt>: <Befund in einem Satz>
+- A|B S|M <repo>:<Pfad> § <Abschnitt>: <Befund in einem Satz>
 Bewertet, nicht übernommen: #n (Grund), <Pfad> § <Abschnitt> (Grund), …
 ```
 
 Der Vorrat führt höchstens 30 Einträge, „bewertet, nicht übernommen“ höchstens 150 (ältere fallen vorne heraus). Der ganze Text bleibt unter 60 000 Zeichen; sonst zuerst die ältesten Einträge von „bewertet, nicht übernommen“ kürzen.
 
-**Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, beantwortete Fragen mit Nummer, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“ Ein Nachschub-Lauf trägt direkt nach der Zeit den Vermerk „Nachschub x von <deckel>“ (x zählt diesen Lauf mit), auch im Leerlauf; der Worker und der Deckel zählen genau diesen Vermerk.
+**Dazu genau einen Kommentar** im Journal (`repos/$Z/issues/$J/comments`) mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, beantwortete Fragen mit Nummer, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“ Ein Nachschub-Lauf trägt direkt nach der Zeit den Vermerk „Nachschub x von <deckel>“ (x zählt diesen Lauf mit), auch im Leerlauf; der Worker und der Deckel zählen genau diesen Vermerk.
 
 Dann den eigenen `plan-lock`-Kommentar löschen. Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.

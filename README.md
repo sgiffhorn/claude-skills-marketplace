@@ -43,7 +43,7 @@ Danach: `/backlog`, `/handoff`, `/finish`, `/land`, `/ship`, wie gewohnt, kein P
 
 ## Plugin `autopilot`
 
-Echtes Plugin (Namespace `autopilot:`), weil Routines es aus diesem Marketplace laden. Planer und Worker laufen als Claude-Code-Routines, der Reviewer als GitHub-Action im Ziel-Repo (Vorlage `plugins/autopilot/skills/autopilot-setup/autopilot-review.yml`, dort darf er mergen); sie stimmen sich nur über GitHub-Labels ab; `autopilot-setup` richtet ein Repo lokal ein. Was ein Repo besonders macht (Gate, Sperrliste, Klassen, Deckel), steht in dessen `.claude/autopilot.md`, Vorlage unter `plugins/autopilot/skills/autopilot-setup/template.md`.
+Echtes Plugin (Namespace `autopilot:`), weil Routines es aus diesem Marketplace laden. Planer und Worker laufen als Claude-Code-Routines, der Reviewer als GitHub-Action im Ziel-Repo (Vorlage `plugins/autopilot/skills/autopilot-setup/autopilot-review.yml`, dort darf er mergen); sie stimmen sich nur über GitHub-Labels ab; `autopilot-setup` richtet ein Repo lokal ein. Was ein Repo besonders macht (Gate, Sperrliste, Klassen, Deckel), steht in dessen `.claude/autopilot.md`, Vorlage unter `plugins/autopilot/skills/autopilot-setup/template.md`. Für mehrere Repos gibt es eine Zentrale in einem Meta-Repo (Vorlage `template-zentrale.md`) mit der Repo-Liste, dem Journal und den globalen Deckeln; nennt der Routine-Prompt sie (`Zentrale: <owner>/<name>`), bedienen dieselben drei Routinen alle Repos der Liste.
 
 ```bash
 claude plugin marketplace add sgiffhorn/claude-skills-marketplace

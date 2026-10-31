@@ -1,6 +1,9 @@
 ---
 repo: OWNER/NAME
 default_branch: main
+# Mit Zentrale (template-zentrale.md) gelten journal_issue, sprache, environments, modelle
+# und die globalen Deckel (wip, neue_auftraege_pro_planerlauf, offene_vorschlaege,
+# pruefungen_pro_lauf, nachschub_pro_tag, budget_*) nur dort; hier ignoriert.
 journal_issue: 0
 # trockenlauf: nur der Planer, alles als autopilot:proposed
 # begleitet: Worker und Reviewer an, nur Klasse A, Reviewer mergt nicht
@@ -11,6 +14,8 @@ stufe: trockenlauf
 freigabe_b: mensch
 sprache: de
 gate: npm test
+# Befehl, den der Worker vor dem ersten Gate ausfuehrt (Abhaengigkeiten, die das Environment nicht mitbringt), darf fehlen
+# vorbereitung: pip install uv && uv sync --extra dev --locked
 merge_methode: squash
 # action: Reviewer laeuft als .github/workflows/autopilot-review.yml, der Workflow mergt
 # api: Reviewer-Routine mergt per gh api (Cloud-Auto-Mode blockt das ohne Org-Freigabe)
@@ -32,6 +37,7 @@ deckel:
   offene_vorschlaege: 10
   pruefungen_pro_lauf: 15
   inventur_tage: 30
+  # review_runden und diff_zeilen liest auch der Review-Workflow, sie stehen deshalb immer hier
   # ein neuer Befund je Runde ist Fortschritt; ein unbehobener aus der Vorrunde geht sofort an den Menschen
   review_runden: 3
   gate_fehlschlaege: 2
@@ -48,7 +54,7 @@ deckel:
 
 # Autopilot: Konfiguration für OWNER/NAME
 
-Gelesen von den Skills `autopilot-plan`, `autopilot-work` und `autopilot-review` (Plugin `autopilot`). Die Kopfzeile ist maschinenlesbar, der Rest gilt wörtlich.
+Gelesen von den Skills `autopilot-plan`, `autopilot-work`, `autopilot-chat` und `autopilot-review` (Plugin `autopilot`) und vom Workflow `.github/workflows/autopilot-review.yml`. Die Kopfzeile ist maschinenlesbar, der Rest gilt wörtlich.
 
 ## Sperrliste (Klasse C)
 
