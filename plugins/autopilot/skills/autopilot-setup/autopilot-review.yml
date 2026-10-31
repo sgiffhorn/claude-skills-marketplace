@@ -150,7 +150,7 @@ jobs:
           claude_args: >-
             --model opus
             --allowed-tools "Read,Glob,Grep,Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git rev-parse *),Bash(git merge-base *),Bash(gh api *),Bash(jq *)"
-            --json-schema '{"type":"object","properties":{"urteil":{"type":"string","enum":["merge","changes","needs-human","skip"]},"sha":{"type":"string"},"runde":{"type":"integer"},"text":{"type":"string"}},"required":["urteil","sha","text"]}'
+            --json-schema '{"type":"object","properties":{"urteil":{"type":"string","enum":["merge","changes","needs-human","schliessen","skip"]},"sha":{"type":"string"},"runde":{"type":"integer"},"text":{"type":"string"}},"required":["urteil","sha","text"]}'
           prompt: |
             Autopilot-Rolle autopilot-review, Laufumgebung GitHub-Action.
             Lies .autopilot-skills/plugins/autopilot/skills/autopilot-review/SKILL.md
@@ -297,6 +297,24 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" -f event=COMMENT -F body=@"$RUNNER_TEMP/text.md"
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/autopilot%3Areview" || true
           gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f 'labels[]=autopilot:changes'
+
+      # Die Aenderung steht schon auf dem Default-Branch (Doppelauftrag):
+      # PR und Issue schliessen statt den Menschen zu fragen.
+      - name: Schliessen
+        if: steps.state.outputs.weiter == 'true' && steps.v.outputs.urteil == 'schliessen'
+        env:
+          N: ${{ steps.v.outputs.issue }}
+        run: |
+          grep -q 'autopilot:closed' "$RUNNER_TEMP/text.md" \
+            || sed -i '1i <!-- autopilot:closed -->' "$RUNNER_TEMP/text.md"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$RUNNER_TEMP/text.md"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/autopilot%3Areview" || true
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR" -f state=closed
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$HEAD_REF" || true
+          if [ -n "${N:-}" ]; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$N/labels/autopilot%3Awip" || true
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$N" -f state=closed -f state_reason=not_planned
+          fi
 
       - name: An den Menschen
         if: >-
