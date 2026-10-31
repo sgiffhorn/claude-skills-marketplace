@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { Auftrag, Digest, Fall, Fenster, Phase, RepoSicht, Routine, Stand } from '../types'
+import type { Aktion, Auftrag, Digest, Fall, Fenster, Phase, RepoSicht, Routine, Stand } from '../types'
 
 const PANE = 'autopilot-monitor'
 const TITEL = 'Autopilot'
@@ -27,6 +27,9 @@ const bandWeg = atom({ plugin: 'autopilot-monitor', key: 'bandWeg' } as const, n
 const fenster = atom({ plugin: 'autopilot-monitor', key: 'fenster' } as const, [] as Fenster[])
 // Repo, dessen Zeile im Panel aufgeklappt ist
 const aufgeklappt = atom({ plugin: 'autopilot-monitor', key: 'aufgeklappt' } as const, null as string | null)
+// Fall, dessen Belege aufgeklappt sind
+const details = atom({ plugin: 'autopilot-monitor', key: 'details' } as const, null as string | null)
+const aktion = atom({ plugin: 'autopilot-monitor', key: 'aktion' } as const, null as Aktion | null)
 
 // ---------- Zeit in Europe/Berlin, ohne Intl ----------
 
@@ -263,7 +266,7 @@ async function findeGruppen($: EngineInterface, jetzt: number): Promise<Gruppe[]
 
 // ---------- Konfiguration aus .claude/autopilot.md ----------
 
-export type Konfig = { stufe?: string; journal?: number; repos?: string[]; deckel: Record<string, number> }
+export type Konfig = { stufe?: string; journal?: number; mergeMethode?: string; repos?: string[]; deckel: Record<string, number> }
 
 export function leseKonfig(md: string): Konfig {
   const kopf = md.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
@@ -276,6 +279,7 @@ export function leseKonfig(md: string): Konfig {
       block = oben[1] ?? ''
       const wert = (oben[2] ?? '').trim()
       if (block === 'stufe') konfig.stufe = wert
+      if (block === 'merge_methode' && wert) konfig.mergeMethode = wert.replace(/["'`]/g, '')
       if (block === 'journal_issue' && Number(wert) > 0) konfig.journal = Number(wert)
       continue
     }
@@ -312,6 +316,7 @@ export function fuehreZusammen(repo: Konfig | undefined, zentrale: Konfig): Konf
   const eigene = Object.entries(repo?.deckel ?? {}).filter(([k]) => !GLOBAL.includes(k))
   return {
     stufe: repo?.stufe,
+    mergeMethode: repo?.mergeMethode,
     journal: zentrale.journal,
     deckel: { ...zentrale.deckel, ...Object.fromEntries(eigene) },
   }
@@ -447,6 +452,79 @@ type NhKnoten = {
   body?: string
   labels?: { nodes: { name: string }[] }
   comments?: { nodes: { body: string; createdAt: string }[] }
+  additions?: number
+  deletions?: number
+  changedFiles?: number
+  headRefOid?: string
+  mergeable?: string
+  commits?: { nodes: { commit?: { statusCheckRollup?: { state?: string } | null } }[] }
+}
+
+// Ohne Code-Marken, damit der Satz im Panel lesbar bleibt
+function ohneMarken(text: string): string {
+  return text.replace(/`/g, '').replace(/\*\*/g, '')
+}
+
+// Die eine Frage eines needs-human-Kommentars: die Zeile "Frage:" oder der erste Satz mit "?"
+export function frageAus(body: string): string | undefined {
+  const text = (body.replace(/<!--[\s\S]*?-->/g, '').split(/\n-{3,}\s*\n/)[0] ?? '').trim()
+  const zeilen = text.split('\n').map(z => z.trim())
+  const markiert = zeilen.find(z => /^\**Frage:?\**/.test(z))
+  if (markiert) return kurz(ohneMarken(markiert.replace(/^\**Frage:?\**:?\s*/, '')), 200)
+  const satz = text.replace(/\s+/g, ' ').match(/[^.?!]*\?/)?.[0]?.trim()
+  return satz ? kurz(ohneMarken(satz), 200) : undefined
+}
+
+// Nummerierte Zeilen ("1. ...") eines Kommentars
+export function belegeAus(body: string): string[] {
+  return body
+    .split('\n')
+    .map(z => z.match(/^\s*\d+\.\s+(.*)$/)?.[1]?.trim())
+    .filter((z): z is string => !!z)
+    .map(z => kurz(ohneMarken(z), 220))
+}
+
+// Optionen und Stand einer Entscheidung aus dem Geruest des Planers
+export function entscheidungAus(body: string): { optionen: { kennung: string; text: string }[]; stand?: string } {
+  const zeile = (name: string) =>
+    body.split('\n').map(z => z.trim()).find(z => new RegExp(`^\\**${name}:?\\**`).test(z))?.replace(new RegExp(`^\\**${name}:?\\**:?\\s*`), '')
+  const optionen: { kennung: string; text: string }[] = []
+  const roh = zeile('Optionen') ?? ''
+  const teile = roh.split(/(?:^|[\s,;])([a-e])\)\s+/)
+  for (let i = 1; i + 1 < teile.length; i += 2) {
+    const text = (teile[i + 1] ?? '').trim().replace(/[,;.]?\s*(?:oder)?$/, '').trim()
+    if (text) optionen.push({ kennung: teile[i] ?? '', text: kurz(ohneMarken(text), 120) })
+  }
+  const stand = zeile('Stand')
+  return { optionen, stand: stand ? kurz(ohneMarken(stand), 220) : undefined }
+}
+
+function prDaten(pr: NhKnoten) {
+  const ci = pr.commits?.nodes[0]?.commit?.statusCheckRollup?.state
+  return {
+    number: pr.number,
+    url: pr.url,
+    titel: pr.title,
+    zweig: pr.headRefName,
+    plus: pr.additions,
+    minus: pr.deletions,
+    dateien: pr.changedFiles,
+    sha: pr.headRefOid,
+    ci: ci ?? undefined,
+    mergebar: pr.mergeable,
+  }
+}
+
+function zusatz(body: string): Pick<Fall, 'frage' | 'belege' | 'runde'> {
+  if (!body) return {}
+  const frage = /würde mergen/i.test(body) ? undefined : frageAus(body)
+  const belege = belegeAus(body)
+  const runde = Number(body.match(/Runde (\d+)/)?.[1])
+  return {
+    ...(frage ? { frage } : {}),
+    ...(belege.length > 0 ? { belege } : {}),
+    ...(runde ? { runde } : {}),
+  }
 }
 
 export function ordneFaelle(knoten: NhKnoten[]): Fall[] {
@@ -469,7 +547,13 @@ export function ordneFaelle(knoten: NhKnoten[]): Fall[] {
       const fragen = [{ body: issue.body ?? '', createdAt: '' }, ...(issue.comments?.nodes ?? [])]
         .filter(c => c.body.includes(FRAGE_MARKE))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      const frage = fragen.pop()?.body
+      const juengste = fragen.pop()
+      const frage = juengste?.body
+      // Wie der Planer: eine Antwort ist ein Kommentar ohne Marker, juenger als die Frage
+      const beantwortet = (issue.comments?.nodes ?? []).some(
+        c => !c.body.includes('<!-- autopilot:') && c.createdAt > (juengste?.createdAt ?? ''),
+      )
+      const { optionen, stand } = frage ? entscheidungAus(frage) : { optionen: [] }
       faelle.push({
         nummer: issue.number,
         titel: issue.title,
@@ -477,6 +561,9 @@ export function ordneFaelle(knoten: NhKnoten[]): Fall[] {
         grund: frage ? frageKurz(frage) : 'Keine Frage gefunden.',
         mechanisch: false,
         entscheidung: true,
+        ...(optionen.length > 0 ? { optionen } : {}),
+        ...(stand ? { stand } : {}),
+        ...(beantwortet ? { beantwortet: true } : {}),
       })
       continue
     }
@@ -490,10 +577,11 @@ export function ordneFaelle(knoten: NhKnoten[]): Fall[] {
       nummer: kopf.number,
       titel: kopf.title,
       url: kopf.url,
-      pr: issue && pr ? { number: pr.number, url: pr.url } : undefined,
+      pr: pr ? prDaten(pr) : undefined,
       grund: juengster ? grundKurz(juengster) : 'Kein needs-human-Kommentar gefunden.',
       mechanisch: istMechanisch(juengster),
       ...(pr && /würde mergen/i.test(juengster) ? { merge: true } : {}),
+      ...zusatz(juengster),
     })
   }
   return faelle.sort((a, b) => a.nummer - b.nummer)
@@ -555,7 +643,8 @@ export function zaehleNachschub(
 const UEBERSICHT = `query($nh:String!, $pr:String!, $prod:String!, $ideen:String!, $o:String!, $n:String!, $j:Int!, $mitJournal:Boolean!){
  nh: search(query:$nh, type:ISSUE, first:50){ nodes{ __typename
   ... on Issue{ number title url body labels(first:20){nodes{name}} comments(last:20){nodes{body createdAt}} }
-  ... on PullRequest{ number title url headRefName comments(last:20){nodes{body createdAt}} } } }
+  ... on PullRequest{ number title url headRefName comments(last:20){nodes{body createdAt}}
+   additions deletions changedFiles headRefOid mergeable commits(last:1){nodes{commit{statusCheckRollup{state}}}} } } }
  merged: search(query:$pr, type:ISSUE, first:100){ nodes{ ... on PullRequest{ number title url headRefName mergedAt } } }
  prod: search(query:$prod, type:ISSUE, first:20){ nodes{ ... on Issue{ number title url state createdAt closedAt } } }
  ideen: search(query:$ideen, type:ISSUE, first:1){ issueCount }
@@ -817,6 +906,7 @@ async function leseRepo(
 
   const [k, a, u, r] = await Promise.all([konfig, auftraege, uebersicht, routinen])
   sicht.stufe = k?.stufe
+  sicht.mergeMethode = k?.mergeMethode
   sicht.routinen = r
   if (a) {
     sicht.auftraege = a.auftraege
@@ -1002,8 +1092,9 @@ export function budgetBalken(
   return aus
 }
 
+// Was den Menschen braucht: ohne Technisches und ohne beantwortete Entscheidungen
 function echte(r: RepoSicht): Fall[] {
-  return r.faelle.filter(f => !f.mechanisch)
+  return r.faelle.filter(f => !f.mechanisch && !f.beantwortet)
 }
 
 function bandText(r: RepoSicht, jetzt: number): string[] {
@@ -1012,6 +1103,121 @@ function bandText(r: RepoSicht, jetzt: number): string[] {
   if (n > 0) t.push(`${n} ${n === 1 ? 'braucht' : 'brauchen'} dich`)
   for (const hw of auffaellig(r, jetzt)) t.push(hw.titel)
   return t
+}
+
+// ---------- Aktionen aus dem Panel ----------
+
+// Wie die Chat-Routine (autopilot-chat), nur auf Druck der Person im Panel
+async function kommentiere($: EngineInterface, repo: string, n: number, body: string): Promise<void> {
+  await gh($, ['api', `repos/${repo}/issues/${n}/comments`, '-f', `body=${body}`])
+}
+
+async function labelWeg($: EngineInterface, repo: string, n: number, label: string): Promise<void> {
+  // Fehlt das Label schon, ist nichts zu tun
+  await gh($, ['api', '-X', 'DELETE', `repos/${repo}/issues/${n}/labels/${encodeURIComponent(label)}`]).catch(err => {
+    if (!/404|Not Found|does not exist/.test(String(err))) throw err
+  })
+}
+
+async function labelDazu($: EngineInterface, repo: string, n: number, label: string): Promise<void> {
+  await gh($, ['api', `repos/${repo}/issues/${n}/labels`, '-f', `labels[]=${label}`])
+}
+
+export function fallId(repo: string, f: Fall): string {
+  return `${repo}#${f.nummer}`
+}
+
+async function fuehreAus($: EngineInterface, id: string, arbeit: () => Promise<string>): Promise<void> {
+  const alt = await read($, aktion)
+  if (alt?.status === 'laeuft') return
+  await update($, aktion, () => ({ id, status: 'laeuft' as const }))
+  try {
+    const text = await arbeit()
+    await update($, aktion, () => ({ id, status: 'ok' as const, text }))
+    // Ein misslungenes Nachladen macht die Aktion nicht ungeschehen
+    void aktualisiere($).catch(() => undefined)
+  } catch (err) {
+    await update($, aktion, () => ({ id, status: 'fehler' as const, text: err instanceof Error ? err.message : String(err) }))
+  }
+}
+
+// Merge eines PR, den der Reviewer in Stufe begleitet freigegeben hat, auf dem geprueften Stand
+async function merge($: EngineInterface, r: RepoSicht, f: Fall): Promise<string> {
+  const pr = f.pr
+  if (!pr) throw new Error('kein PR zu diesem Fall')
+  const methode = ['squash', 'merge', 'rebase'].includes(r.mergeMethode ?? '') ? (r.mergeMethode as string) : 'squash'
+  const args = ['api', '-X', 'PUT', `repos/${r.repo}/pulls/${pr.number}/merge`, '-f', `merge_method=${methode}`]
+  if (pr.sha) args.push('-f', `sha=${pr.sha}`)
+  if (methode === 'squash' && pr.titel) {
+    args.push('-f', `commit_title=${pr.titel} (#${pr.number})`)
+    args.push('-f', `commit_message=${f.nummer !== pr.number ? `Closes #${f.nummer}` : ''}`)
+  }
+  await gh($, args)
+  await labelWeg($, r.repo, pr.number, 'needs-human')
+  if (f.nummer !== pr.number) await labelWeg($, r.repo, f.nummer, 'needs-human')
+  if (pr.zweig) {
+    await gh($, ['api', '-X', 'DELETE', `repos/${r.repo}/git/refs/heads/${pr.zweig}`]).catch(() => undefined)
+  }
+  return `PR #${pr.number} gemergt.`
+}
+
+// needs-human aufloesen, weiter wie geplant, mit der Antwort der Person
+async function freigeben($: EngineInterface, r: RepoSicht, f: Fall, antwort: string): Promise<string> {
+  const pr = f.pr
+  const ziel = pr?.number ?? f.nummer
+  await kommentiere($, r.repo, ziel, `<!-- autopilot:antwort -->\n${antwort}`)
+  await labelWeg($, r.repo, f.nummer, 'needs-human')
+  if (pr && pr.number !== f.nummer) await labelWeg($, r.repo, pr.number, 'needs-human')
+  if (pr) {
+    if (pr.number !== f.nummer) await labelDazu($, r.repo, f.nummer, 'autopilot:wip')
+    await labelDazu($, r.repo, pr.number, 'autopilot:review')
+    return `Freigegeben, PR #${pr.number} geht zurück ins Review.`
+  }
+  await labelDazu($, r.repo, f.nummer, 'autopilot:ready')
+  return `Freigegeben, #${f.nummer} ist wieder bereit.`
+}
+
+// Antwort auf eine Entscheidung: Kommentar ohne Marker, der Planer arbeitet sie ein
+async function antworte($: EngineInterface, r: RepoSicht, f: Fall, antwort: string): Promise<string> {
+  await kommentiere($, r.repo, f.nummer, antwort)
+  return 'Antwort geschrieben, der Planer arbeitet sie im nächsten Lauf ein.'
+}
+
+async function vorschlagFrei($: EngineInterface, repo: string, n: number): Promise<string> {
+  await labelWeg($, repo, n, 'autopilot:proposed')
+  await labelDazu($, repo, n, 'autopilot:ready')
+  return `#${n} freigegeben.`
+}
+
+export function ciText(ci?: string): string | undefined {
+  if (ci === 'SUCCESS') return 'CI grün'
+  if (ci === 'FAILURE' || ci === 'ERROR') return 'CI rot'
+  if (ci === 'PENDING' || ci === 'EXPECTED') return 'CI läuft'
+  return undefined
+}
+
+export function prZeile(pr: NonNullable<Fall['pr']>): string {
+  const teile: string[] = []
+  if (pr.plus !== undefined && pr.minus !== undefined) {
+    teile.push(`+${pr.plus}/-${pr.minus}${pr.dateien !== undefined ? ` in ${pr.dateien} ${pr.dateien === 1 ? 'Datei' : 'Dateien'}` : ''}`)
+  }
+  const ci = ciText(pr.ci)
+  if (ci) teile.push(ci)
+  if (pr.mergebar === 'MERGEABLE') teile.push('mergebar')
+  if (pr.mergebar === 'CONFLICTING') teile.push('Konflikt mit dem Default-Branch')
+  return teile.join(' · ')
+}
+
+// Warum der Fall den Menschen braucht, in einem Satz
+export function warum(f: Fall, stufe?: string): string {
+  if (f.entscheidung) return `Frage: ${f.grund}`
+  if (f.merge) {
+    const runde = f.runde ? ` (Runde ${f.runde})` : ''
+    return stufe === 'begleitet'
+      ? `Reviewer würde mergen${runde}. In Stufe begleitet mergst du.`
+      : `Reviewer würde mergen${runde}, der Merge liegt bei dir.`
+  }
+  return `Grund: ${kurz(f.grund.replace(/`/g, ''), 200)}`
 }
 
 // ---------- Panel: ueber alle Repos ----------
@@ -1236,10 +1442,15 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
+    const tafel = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = tafel
+    // Mobile hat kein Eingabefeld, dort bleiben die Knoepfe
+    const Input = 'Input' in tafel ? tafel.Input : undefined
     const s = await read($, stand)
     const f = await read($, fenster)
     const offen = await read($, aufgeklappt)
+    const belegeAuf = await read($, details)
+    const a = await read($, aktion)
     const jetzt = await $.clock.now()
     const vs = verbuende(s.repos)
     // Ein Repo, das es nicht mehr gibt, klappt nichts zu
@@ -1292,8 +1503,117 @@ export const register: Register = on => {
     )
 
     // 1. Braucht dich ueber alle Repos
-    const faelle = s.repos.flatMap(r => echte(r).map(fall => ({ repo: r.repo, fall })))
+    const faelle = s.repos.flatMap(r => echte(r).map(fall => ({ r, fall })))
     const journalUrl = s.repos.find(r => r.journalUrl)?.journalUrl
+
+    // Rueckmeldung der letzten Aktion an ihrem Fall
+    const rueckmeldung = (id: string) =>
+      a?.id === id &&
+      a.status !== 'frage' && (
+        <Text color={a.status === 'fehler' ? 'error' : a.status === 'ok' ? 'success' : undefined} dimColor={a.status === 'laeuft'}>
+          {a.status === 'laeuft' ? 'läuft …' : a.status === 'fehler' ? `Fehler: ${kurz(a.text ?? '', 160)}` : (a.text ?? 'erledigt')}
+        </Text>
+      )
+
+    // Ein Fall: Art, Link, worum es geht, warum er dich braucht, Belege, Knoepfe
+    const fallKarte = (r: RepoSicht, fall: Fall) => {
+      const art = artVon(fall)
+      const id = fallId(r.repo, fall)
+      const nummer = art === 'Merge' ? (fall.pr?.number ?? fall.nummer) : fall.nummer
+      const url = art === 'Merge' ? (fall.pr?.url ?? fall.url) : fall.url
+      const belegeOffen = belegeAuf === id
+      const fragt = a?.id === id && a.status === 'frage'
+      const methode = r.mergeMethode ?? 'squash'
+      const extraFrage = !fall.entscheidung && !fall.merge && fall.frage && !fall.grund.includes(fall.frage)
+      return (
+        <Box key={`fall-${id}`} flexDirection="column" borderStyle="round" borderColor={art === 'Entscheidung' ? 'merged' : 'warning'} paddingX={1}>
+          <Box flexDirection="row" gap={1}>
+            <Text color={art === 'Entscheidung' ? 'merged' : 'warning'} weight="semibold">
+              {art}
+            </Text>
+            <Link href={url}>
+              <Text weight="semibold">{`${kurzname(r.repo)}#${nummer}`}</Text>
+            </Link>
+          </Box>
+          <Text>{kurz(fall.titel, 120)}</Text>
+          <Text color={art === 'Merge' ? 'warning' : undefined}>{warum(fall, r.stufe)}</Text>
+          {extraFrage && <Text>Frage: {fall.frage}</Text>}
+          {fall.stand && <Text dimColor>Stand: {fall.stand}</Text>}
+          {fall.pr && prZeile(fall.pr) && <Text dimColor>{prZeile(fall.pr)}</Text>}
+          {fall.belege && fall.belege.length > 0 && (
+            <Button
+              key={`belege-${id}`}
+              plain
+              dimColor
+              label={`${belegeOffen ? '⌄' : '›'} ${art === 'Merge' ? 'Belege' : 'Details'} (${fall.belege.length})`}
+              onPress={() => update($, details, alt => (alt === id ? null : id))}
+            />
+          )}
+          {belegeOffen &&
+            fall.belege?.map((b, i) => (
+              <Text dimColor>
+                {i + 1}. {b}
+              </Text>
+            ))}
+          {art === 'Merge' && fall.pr && !fragt && fall.pr.mergebar !== 'CONFLICTING' && (
+            <Box flexDirection="row" gap={1}>
+              <Button key={`merge-${id}`} variant="primary" label="Mergen" onPress={() => update($, aktion, () => ({ id, status: 'frage' as const }))} />
+              <Link href={`${fall.pr.url}/files`} label="Diff ansehen" />
+            </Box>
+          )}
+          {art === 'Merge' && fall.pr && fragt && (
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Text>{`PR #${fall.pr.number} per ${methode} mergen?`}</Text>
+              <Button key={`ja-${id}`} variant="primary" label="Ja, mergen" onPress={() => void fuehreAus($, id, () => merge($, r, fall))} />
+              <Button key={`nein-${id}`} label="Abbrechen" onPress={() => update($, aktion, () => null)} />
+            </Box>
+          )}
+          {art === 'Entscheidung' && fall.optionen && (
+            <Box flexDirection="row" gap={1} flexWrap="wrap">
+              {fall.optionen.map(o => (
+                <Button
+                  key={`option-${id}-${o.kennung}`}
+                  label={`${o.kennung}) ${kurz(o.text, 50)}`}
+                  onPress={() => void fuehreAus($, id, () => antworte($, r, fall, `${o.kennung}) ${o.text}`))}
+                />
+              ))}
+            </Box>
+          )}
+          {art === 'Entscheidung' && Input && (
+            <Input
+              key={`antwort-${id}`}
+              placeholder="Eigene Antwort, Enter schickt sie ans Issue"
+              submitLabel="schicken"
+              onSubmit={(text: string) => {
+                if (text.trim()) void fuehreAus($, id, () => antworte($, r, fall, text.trim()))
+              }}
+            />
+          )}
+          {art === 'needs-human' && (
+            <Box flexDirection="column">
+              <Button
+                key={`frei-${id}`}
+                variant="primary"
+                label="Freigeben, weiter wie geplant"
+                onPress={() => void fuehreAus($, id, () => freigeben($, r, fall, 'Im Panel freigegeben: weiter wie geplant.'))}
+              />
+              {Input && (
+              <Input
+                key={`antwort-${id}`}
+                placeholder="Oder Antwort, Enter schickt sie und gibt frei"
+                submitLabel="freigeben"
+                onSubmit={(text: string) => {
+                  if (text.trim()) void fuehreAus($, id, () => freigeben($, r, fall, text.trim()))
+                }}
+              />
+              )}
+            </Box>
+          )}
+          {rueckmeldung(id)}
+        </Box>
+      )
+    }
+
     const brauchtDich = einRepoOffen ? (
       <Box flexDirection="row" justifyContent="space-between">
         <Text color={faelle.length > 0 ? 'warning' : undefined} dimColor={faelle.length === 0} weight="semibold">
@@ -1310,27 +1630,7 @@ export const register: Register = on => {
           {faelle.length > 0 && journalUrl && <Link href={journalUrl} label="Im Journal antworten" />}
         </Box>
         {faelle.length === 0 && <Text dimColor>nichts</Text>}
-        {faelle.map(({ repo, fall }) => {
-          const art = artVon(fall)
-          const nummer = art === 'Merge' ? (fall.pr?.number ?? fall.nummer) : fall.nummer
-          const url = art === 'Merge' ? (fall.pr?.url ?? fall.url) : fall.url
-          const satz = art === 'Merge' ? `${fall.titel}. Reviewer: ${fall.grund}` : fall.grund
-          return (
-            <Box key={`fall-${repo}-${fall.nummer}`} flexDirection="row" gap={1}>
-              <Box width={13} flexShrink={0}>
-                <Text color={art === 'Entscheidung' ? 'merged' : 'warning'} weight="semibold">
-                  {art}
-                </Text>
-              </Box>
-              <Box flexDirection="column" flexShrink={1}>
-                <Link href={url}>
-                  <Text weight="semibold">{`${kurzname(repo)}#${nummer}`}</Text>
-                </Link>
-                <Text dimColor>{kurz(satz, 140)}</Text>
-              </Box>
-            </Box>
-          )
-        })}
+        {faelle.map(({ r, fall }) => fallKarte(r, fall))}
       </Box>
     )
 
@@ -1434,7 +1734,8 @@ export const register: Register = on => {
       }
 
       const inArbeit = r.auftraege.filter(a => ['in Arbeit', 'im Review', 'Nacharbeit', 'wird gemergt'].includes(a.phase))
-      const bereit = r.auftraege.filter(a => a.phase === 'freigegeben')
+      const bereit = r.auftraege.filter(x => x.phase === 'freigegeben')
+      const vorschlaege = r.auftraege.filter(x => x.phase === 'Vorschlag' && x.issue)
       const mechanisch = r.faelle.filter(x => x.mechanisch)
       const worker = rolle(r, 'Worker')
       const d = r.digest
@@ -1452,15 +1753,7 @@ export const register: Register = on => {
           <Box flexDirection="column" paddingLeft={2} gap={1}>
             {abschnitt(
               'Wartet auf dich',
-              echte(r).map(fall => {
-                const art = artVon(fall)
-                return (
-                  <Box key={`warte-${fall.nummer}`} flexDirection="row" justifyContent="space-between" gap={1}>
-                    <Link href={art === 'Merge' ? (fall.pr?.url ?? fall.url) : fall.url} label={kurz(`#${fall.nummer} ${fall.titel}`, 60)} />
-                    <Text color={art === 'Entscheidung' ? 'merged' : 'warning'}>{art}</Text>
-                  </Box>
-                )
-              }),
+              echte(r).map(fall => fallKarte(r, fall)),
             )}
             {mechanisch.length > 0 && (
               <Box flexDirection="row" gap={1} flexWrap="wrap">
@@ -1482,9 +1775,27 @@ export const register: Register = on => {
             )}
             {abschnitt(
               'Bereit',
-              bereit.map(a => (
-                <Link href={a.issue?.url ?? ''} label={kurz(auftragTitel(a), 64)} />
+              bereit.map(x => (
+                <Link href={x.issue?.url ?? ''} label={kurz(auftragTitel(x), 64)} />
               )),
+            )}
+            {abschnitt(
+              'Vorschläge',
+              vorschlaege.map(x => {
+                const n = x.issue?.number ?? 0
+                const id = `${r.repo}#${n}`
+                return (
+                  <Box key={`vorschlag-${id}`} flexDirection="column">
+                    <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                      <Link href={x.issue?.url ?? ''} label={kurz(auftragTitel(x), 56)} />
+                      {r.stufe !== 'trockenlauf' && (
+                        <Button key={`vorschlag-${id}`} label="Freigeben" onPress={() => void fuehreAus($, id, () => vorschlagFrei($, r.repo, n))} />
+                      )}
+                    </Box>
+                    {rueckmeldung(id)}
+                  </Box>
+                )
+              }),
             )}
             {d && (
               <Box flexDirection="column">

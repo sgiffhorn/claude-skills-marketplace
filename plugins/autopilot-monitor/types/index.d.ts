@@ -25,15 +25,38 @@ export type Fall = {
   nummer: number
   titel: string
   url: string
-  pr?: { number: number; url: string }
+  pr?: {
+    number: number
+    url: string
+    titel?: string
+    zweig?: string
+    // Diff, Kopf und Checks des PR, soweit gelesen
+    plus?: number
+    minus?: number
+    dateien?: number
+    sha?: string
+    ci?: string
+    mergebar?: string
+  }
   // Erster Satz des juengsten needs-human-Kommentars
   grund: string
+  // Die eine Frage an den Menschen, wo der Kommentar eine stellt
+  frage?: string
+  // Optionen einer Entscheidung ("a) ..., b) ...") und ihr Stand
+  optionen?: { kennung: string; text: string }[]
+  stand?: string
+  // Nummerierte Belege oder Befunde des Kommentars
+  belege?: string[]
+  // Runde des Reviews, wo der Kommentar sie nennt
+  runde?: number
   // Technischer Grund, den der Worker selbst abraeumt
   mechanisch: boolean
   // Issue mit autopilot:entscheidung; grund ist dann die Frage des Planers
   entscheidung?: boolean
   // Der Reviewer gibt den PR in Stufe begleitet frei ("Urteil: wuerde mergen")
   merge?: boolean
+  // Entscheidung mit einer Antwort, die der Planer noch einarbeitet
+  beantwortet?: boolean
 }
 
 export type Digest = {
@@ -54,6 +77,8 @@ export type RepoSicht = {
   // Repo der Zentrale, wenn die Routinen eine nennen; sonst Ein-Repo-Modus
   zentrale?: string
   stufe?: string
+  // merge_methode aus der Repo-Datei, Vorgabe squash
+  mergeMethode?: string
   auftraege: Auftrag[]
   routinen: Routine[]
   faelle: Fall[]
@@ -83,10 +108,13 @@ export type RepoSicht = {
 // Ratenfenster des Kontos (five_hour, seven_day); Cloud-Laeufe zehren vom selben Kontingent
 export type Fenster = { kind: string; percentUsed: number; resetsAt?: string }
 
+// Laufende oder zuletzt gelaufene Aktion aus dem Panel; frage wartet auf die Bestaetigung
+export type Aktion = { id: string; status: 'frage' | 'laeuft' | 'ok' | 'fehler'; text?: string }
+
 export type Stand = { at: number; repos: RepoSicht[]; isLoading: boolean; fehler?: string }
 
 declare module 'claude-code' {
   interface PluginState {
-    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null; fenster: Fenster[]; aufgeklappt: string | null }
+    'autopilot-monitor': { stand: Shaped<Stand>; bandWeg: string | null; fenster: Fenster[]; aufgeklappt: string | null; details: string | null; aktion: Aktion | null }
   }
 }

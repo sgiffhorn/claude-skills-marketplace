@@ -128,7 +128,8 @@ test('ohne Zentrale zeigt das Panel Kopf, Braucht dich, Deckel, Repo-Zeile und A
     expect(await find(/^needs-human$/)).toBeTruthy()
     expect(await ui.find({ type: 'Link', text: 'Im Journal antworten' })).toBeTruthy()
     expect(await find(/^repo#21$/)).toBeTruthy()
-    expect(await find(/Die Schnittstelle liefert das Feld nicht/)).toBeTruthy()
+    expect(await find(/^Grund: Die Schnittstelle liefert das Feld nicht, welcher Weg\?$/)).toBeTruthy()
+    expect(await ui.find({ type: 'Button', key: 'frei-beispiel/repo#21' })).toBeTruthy()
     expect(await find(/repo#22/)).toBeFalsy()
     // Deckel und Rollen
     expect(await find(/^DECKEL UND ROLLEN$/)).toBeTruthy()
@@ -167,7 +168,10 @@ test('ein aufgeklapptes Repo zeigt Details, Braucht dich und Deckel schrumpfen a
   expect(await find(/^DECKEL UND ROLLEN$/)).toBeFalsy()
   expect(await find(/^autonom · WIP 0 von 4$/)).toBeTruthy()
   expect(await find(/^WARTET AUF DICH$/)).toBeTruthy()
-  expect(await ui.find({ type: 'Link', text: '#21 Beispielauftrag 21' })).toBeTruthy()
+  expect(await find(/^repo#21$/)).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'frei-beispiel/repo#21' })).toBeTruthy()
+  expect(await find(/^VORSCHLÄGE$/)).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'vorschlag-beispiel/repo#17' })).toBeTruthy()
   expect(await find(/Repariert sich selbst/)).toBeTruthy()
   expect(await find(/nächster Worker 09:55/)).toBeTruthy()
   expect(await ui.find({ type: 'Link', text: '#31' })).toBeTruthy()
@@ -252,8 +256,31 @@ test('mit Zentrale zeigt das Panel alle Faelle, globale Deckel einmal und je Rep
     ideen: 0,
     auftraege: [{ phase: 'in Arbeit', issue: { number: 43, title: 'Beispielauftrag 43', url: `${Z}/issues/43` } }],
     faelle: [
-      { nummer: 44, titel: 'Doku: Beispiel', url: `${Z}/issues/44`, pr: { number: 45, url: `${Z}/pull/45` }, grund: 'Urteil: würde mergen.', mechanisch: false, merge: true },
-      { nummer: 46, titel: 'Beispielfrage', url: `${Z}/issues/46`, grund: 'Welcher Weg?', mechanisch: false, entscheidung: true },
+      {
+        nummer: 44,
+        titel: 'Doku: Beispiel',
+        url: `${Z}/issues/44`,
+        pr: { number: 45, url: `${Z}/pull/45`, titel: 'Doku: Beispiel', zweig: 'claude/autopilot-44', plus: 9, minus: 11, dateien: 3, sha: 'abc123', ci: 'SUCCESS', mergebar: 'MERGEABLE' },
+        grund: 'Urteil: würde mergen.',
+        mechanisch: false,
+        merge: true,
+        runde: 2,
+        belege: ['a.md:1 stimmt mit dem Code überein.', 'Nicht-Ziele eingehalten.'],
+      },
+      {
+        nummer: 46,
+        titel: 'Beispielfrage',
+        url: `${Z}/issues/46`,
+        grund: 'Welcher Weg?',
+        mechanisch: false,
+        entscheidung: true,
+        optionen: [
+          { kennung: 'a', text: 'Feld übernehmen' },
+          { kennung: 'b', text: 'Feld weglassen' },
+        ],
+        stand: 'Das Feld gibt es nur im Export.',
+      },
+      { nummer: 47, titel: 'Schon beantwortet', url: `${Z}/issues/47`, grund: 'Alt?', mechanisch: false, entscheidung: true, beantwortet: true },
     ],
     digest: { ...STAND.repos[0].digest, gemergt: 1 },
     fehler: [],
@@ -266,7 +293,13 @@ test('mit Zentrale zeigt das Panel alle Faelle, globale Deckel einmal und je Rep
     expect(await find(/^Zentrale meta · Journal #1 · 09:34 CET$/)).toBeTruthy()
     expect(await find(/BRAUCHT DICH · 3/)).toBeTruthy()
     expect(await find(/^zwei#45$/)).toBeTruthy()
-    expect(await find(/^Doku: Beispiel\. Reviewer: Urteil: würde mergen\.$/)).toBeTruthy()
+    expect(await find(/^Doku: Beispiel$/)).toBeTruthy()
+    expect(await find(/^Reviewer würde mergen \(Runde 2\)\. In Stufe begleitet mergst du\.$/)).toBeTruthy()
+    expect(await find(/^\+9\/-11 in 3 Dateien · CI grün · mergebar$/)).toBeTruthy()
+    expect(await find(/^Frage: Welcher Weg\?$/)).toBeTruthy()
+    expect(await find(/^Stand: Das Feld gibt es nur im Export\.$/)).toBeTruthy()
+    expect(await ui.find({ type: 'Button', key: 'option-beispiel/zwei#46-a' })).toBeTruthy()
+    expect(await find(/zwei#47/)).toBeFalsy()
     expect(await find(/^zwei#46$/)).toBeTruthy()
     expect(await find(/^Merge$/)).toBeTruthy()
     expect(await find(/^Entscheidung$/)).toBeTruthy()
@@ -288,5 +321,120 @@ test('mit Zentrale zeigt das Panel alle Faelle, globale Deckel einmal und je Rep
   expect(await ui.find({ type: 'Text', text: /^WIP 1 von 4 · Ideen 2 von 30$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Link', text: '#43 Beispielauftrag 43' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Braucht dich · 3$/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+// Zwei Repos einer Zentrale mit je einem Fall jeder Art, fuer die Knoepfe
+function mitFaellen() {
+  const Z = 'https://github.com/beispiel/zwei'
+  const eins = { ...STAND.repos[0], zentrale: 'beispiel/meta' }
+  const zwei = {
+    ...eins,
+    repo: 'beispiel/zwei',
+    stufe: 'begleitet',
+    auftraege: [],
+    faelle: [
+      {
+        nummer: 44,
+        titel: 'Doku: Beispiel',
+        url: `${Z}/issues/44`,
+        pr: { number: 45, url: `${Z}/pull/45`, titel: 'Doku: Beispiel', zweig: 'claude/autopilot-44', sha: 'abc123', mergebar: 'MERGEABLE' },
+        grund: 'Urteil: würde mergen.',
+        mechanisch: false,
+        merge: true,
+        belege: ['a.md:1 stimmt.'],
+      },
+      {
+        nummer: 46,
+        titel: 'Beispielfrage',
+        url: `${Z}/issues/46`,
+        grund: 'Welcher Weg?',
+        mechanisch: false,
+        entscheidung: true,
+        optionen: [{ kennung: 'a', text: 'Feld übernehmen' }],
+      },
+    ],
+  }
+  return { ...STAND, repos: [eins, zwei] }
+}
+
+const gestartet = (on: Parameters<Parameters<typeof test>[1]>[1]) => {
+  const aufrufe: string[][] = []
+  on('process.run', (_$: unknown, e: { argv: readonly string[] }) => {
+    aufrufe.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '{}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  return aufrufe
+}
+
+test('Mergen fragt nach und mergt dann den geprueften Stand', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(mitFaellen()))
+  const aufrufe = gestartet(on)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'belege-beispiel/zwei#44' })
+  expect(await ui.find({ type: 'Text', text: /^1\. a\.md:1 stimmt\.$/ })).toBeTruthy()
+  await ui.press({ key: 'merge-beispiel/zwei#44' })
+  expect(await ui.find({ type: 'Text', text: /^PR #45 per squash mergen\?$/ })).toBeTruthy()
+  expect(aufrufe.length).toBe(0)
+  await ui.press({ key: 'ja-beispiel/zwei#44' })
+  const merge = aufrufe.find(a => a.includes('repos/beispiel/zwei/pulls/45/merge'))
+  expect(merge).toBeTruthy()
+  expect(merge).toContain('sha=abc123')
+  expect(merge).toContain('merge_method=squash')
+  expect(merge).toContain('commit_title=Doku: Beispiel (#45)')
+  expect(merge).toContain('commit_message=Closes #44')
+  expect(aufrufe.some(a => a.includes('repos/beispiel/zwei/git/refs/heads/claude/autopilot-44'))).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /^PR #45 gemergt\.$/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('Freigeben loest needs-human auf, eine Antwort geht mit', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(mitFaellen()))
+  const aufrufe = gestartet(on)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'frei-beispiel/repo#21' })
+  expect(aufrufe.some(a => a.includes('repos/beispiel/repo/issues/21/comments') && a.some(x => x.startsWith('body=<!-- autopilot:antwort -->')))).toBe(true)
+  expect(aufrufe.some(a => a.includes('DELETE') && a.includes('repos/beispiel/repo/issues/21/labels/needs-human'))).toBe(true)
+  expect(aufrufe.some(a => a.includes('repos/beispiel/repo/issues/21/labels') && a.includes('labels[]=autopilot:ready'))).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /^Freigegeben, #21 ist wieder bereit\.$/ })).toBeTruthy()
+
+  aufrufe.length = 0
+  await $.ui.input({ plugin: 'autopilot-monitor', key: 'antwort-beispiel/repo#21', text: 'Nimm Weg B.' })
+  expect(aufrufe.some(a => a.includes('body=<!-- autopilot:antwort -->\nNimm Weg B.'))).toBe(true)
+  await ui.unmount()
+})
+
+test('eine Entscheidung wird per Option oder eigener Antwort beantwortet', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(mitFaellen()))
+  const aufrufe = gestartet(on)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'option-beispiel/zwei#46-a' })
+  expect(aufrufe.some(a => a.includes('repos/beispiel/zwei/issues/46/comments') && a.includes('body=a) Feld übernehmen'))).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /Planer arbeitet sie im nächsten Lauf ein/ })).toBeTruthy()
+
+  aufrufe.length = 0
+  await $.ui.input({ plugin: 'autopilot-monitor', key: 'antwort-beispiel/zwei#46', text: 'Weder noch, erst messen.' })
+  expect(aufrufe.some(a => a.includes('body=Weder noch, erst messen.'))).toBe(true)
+  await ui.unmount()
+})
+
+test('auf Mobile bleiben die Knoepfe, ohne Eingabefeld', async ($, on) => {
+  const uhr = mock.clock(on)
+  await uhr.set(AT)
+  on('state.get', zustand(mitFaellen()))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'mobile' })
+  expect(await ui.find({ type: 'Button', key: 'frei-beispiel/repo#21' })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'option-beispiel/zwei#46-a' })).toBeTruthy()
+  expect(await ui.find({ type: 'Input' })).toBeFalsy()
   await ui.unmount()
 })
