@@ -44,9 +44,9 @@ seiten() {
 
 Kommentare mit irgendeinem `<!-- autopilot:`-Marker stammen von einer Rolle, alle anderen vom Menschen, auch wenn GitHub denselben Account zeigt.
 
-## 1. Digest (nur im Zeitplan-Lauf)
+## 1. Digest (einmal am Tag, ab 06:30)
 
-Hat kein GitHub-Ereignis den Lauf geweckt, ist es der Zeitplan-Lauf am Morgen. Gibt es heute (Europe/Berlin) schon einen Kommentar `<!-- autopilot:digest -->` im Journal, weiter mit Schritt 2. Sonst einen Digest schreiben, Fenster seit dem letzten Digest, höchstens 24 Stunden:
+Woher der Weckruf kam, spielt keine Rolle, und du kannst es nicht sicher erkennen. Es entscheiden allein Uhrzeit und Journal: Ist es in Europe/Berlin vor 06:30, oder gibt es heute (Europe/Berlin) schon einen Kommentar `<!-- autopilot:digest -->` im Journal, weiter mit Schritt 2. Sonst einen Digest schreiben, auch wenn der Lauf durch einen Kommentar geweckt wurde, Fenster seit dem letzten Digest, höchstens 24 Stunden:
 
 ```
 <!-- autopilot:digest -->
