@@ -17,17 +17,48 @@ export type Lauf = {
   ergebnis: string
 }
 
-export type Routine = { rolle: string; url?: string; laeufe: Lauf[]; fehler?: string }
+// naechster: geplanter naechster Lauf (ms), wo die Routine einen Zeitplan hat
+export type Routine = { rolle: string; url?: string; laeufe: Lauf[]; naechster?: number; fehler?: string }
+
+// Ein offener needs-human-Fall; Issue und zugehoeriger PR sind ein Fall
+export type Fall = {
+  nummer: number
+  titel: string
+  url: string
+  pr?: { number: number; url: string }
+  // Erster Satz des juengsten needs-human-Kommentars
+  grund: string
+  // Technischer Grund, den der Worker selbst abraeumt
+  mechanisch: boolean
+}
+
+export type Digest = {
+  // Fensterbeginn (ms): gestern 09:00 Europe/Berlin
+  seit: number
+  gemergt: number
+  features: number
+  tests: number
+  doku: number
+  // Aenderungen am Autopiloten selbst, nicht in gemergt
+  autopilot: number
+  featureTitel: { nummer: number; titel: string; url: string }[]
+  prod: { nummer: number; titel: string; url: string; offen: boolean }[]
+}
 
 export type RepoSicht = {
   repo: string
   stufe?: string
   auftraege: Auftrag[]
   routinen: Routine[]
-  workerHeute?: number
-  workerDeckel?: number
+  faelle: Fall[]
+  digest?: Digest
+  journalUrl?: string
   wip?: number
   wipDeckel?: number
+  nachschubHeute?: number
+  nachschubDeckel: number
+  // Wann heute der Nachschub-Deckel erreicht wurde (ms)
+  nachschubVollUm?: number
   fehler: string[]
 }
 
