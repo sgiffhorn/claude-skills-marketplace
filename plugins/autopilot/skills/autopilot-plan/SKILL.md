@@ -23,6 +23,7 @@ Du bist der Planer. Du erzeugst Aufträge und hältst das Journal. Du schreibst 
      ```
 
    - Sonst läuft der Nachschub-Lauf wie jeder andere, mit denselben Regeln für Platz, Vorrat zuerst und Budget-Bremse.
+6. **Sperre gegen parallele Läufe:** Zwei Planer gleichzeitig legen dasselbe Thema doppelt an. Kommentar `<!-- autopilot:plan-lock -->` mit der Startzeit ins Journal schreiben, dann die Kommentare des Journals seit 30 Minuten neu lesen. Gibt es einen anderen `plan-lock` aus den letzten 30 Minuten mit kleinerer ID, zu dem noch keine jüngere Laufzeile `<!-- autopilot:journal -->` steht, läuft ein anderer Planer: den eigenen `plan-lock` löschen (`gh api -X DELETE repos/$REPO/issues/comments/<id>`), Ende ohne weiteren Schreibzugriff. Den eigenen `plan-lock` löschst du am Ende von Schritt 6 (Journal) wieder.
 
 ## Hausregeln (gelten für alles, was dieser Lauf schreibt)
 
@@ -146,7 +147,7 @@ Ohne Platz läuft der Doku-Sweep trotzdem, wenn er etwas zu tun hat (Inventur f�
 Die Quellen und ihre Reihenfolge stehen in `.claude/autopilot.md` unter „Planer-Quellen“. Arbeite alle Quellen ab, auch wenn die erste schon Kandidaten liefert, und wähle danach aus (Schritt 5). Für jede gilt:
 
 - Übergehe Issues mit einem `autopilot:*`-Label, mit einem Ausschluss-Label, mit einem offenen PR auf `claude/autopilot-<n>`, und Issues aus der Liste „bewertet, nicht übernommen“, sofern sie seither nicht geändert wurden (`updated_at`).
-- Vor jedem neuen Issue eine Dublettensuche über offene und geschlossene Issues. `search/issues` liefert im Cloud-Lauf 403: die Titelliste einmal je Lauf nach `/tmp/titel.txt` holen (Tabelle oben) und mit `grep -i -E '<Stichwort>|<Synonym>' /tmp/titel.txt` durchsuchen. Gibt es das Thema schon, kein neues Issue.
+- Vor jedem neuen Issue eine Dublettensuche über offene und geschlossene Issues. `search/issues` liefert im Cloud-Lauf 403: die Titelliste direkt vor jedem Anlegen neu nach `/tmp/titel.txt` holen (Tabelle oben; ein paralleler Lauf kann gerade angelegt haben) und mit `grep -i -E '<Stichwort>|<Synonym>' /tmp/titel.txt` durchsuchen. Zusätzlich die Specs offener Issues mit `autopilot:*`-Label und der in den letzten 7 Tagen geschlossenen auf dieselbe **Quelle** prüfen (gleiche Datei und gleicher Abschnitt, oder gleiche Datei und Funktion): Titel können sich unterscheiden, die Quelle nicht. Gibt es das Thema schon, kein neues Issue.
 - Beim Bereichs-Review im Umlauf genau einen Bereich je Lauf ansehen, den nächsten nach „letzter Bereich“, und höchstens 2 Befunde daraus aufnehmen.
 - Lies den Code, bevor du einen Befund behauptest. Ein Auftrag ohne geprüften Befund ist schlechter als keiner.
 
@@ -244,4 +245,4 @@ Der Vorrat führt höchstens 30 Einträge, „bewertet, nicht übernommen“ hö
 
 **Dazu genau einen Kommentar** mit Marker `<!-- autopilot:journal -->` und einer Zeile: Zeit, beantwortete Fragen mit Nummer, neue Aufträge mit Nummer und Klasse, Sweep-Modus mit Zahl der Dateien, Kandidaten und geprüften Kandidaten, Größe des Vorrats, WIP, Zahl der needs-human-Fälle. Im Leerlauf: „<Zeit>: nichts zu tun.“ Ein Nachschub-Lauf trägt direkt nach der Zeit den Vermerk „Nachschub x von <deckel>“ (x zählt diesen Lauf mit), auch im Leerlauf; der Worker und der Deckel zählen genau diesen Vermerk.
 
-Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.
+Dann den eigenen `plan-lock`-Kommentar löschen. Danach endet der Lauf. Gib als letzte Ausgabe dieselbe Zeile aus.

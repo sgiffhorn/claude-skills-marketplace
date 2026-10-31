@@ -96,9 +96,10 @@ Jeder Treffer führt direkt zu Schritt 5c (needs-human), mit dem Treffer als Gru
 
 - Eine Datei aus `pulls/$P/files` liegt auf der Sperrliste.
 - Einfügungen plus Löschungen aus `pulls/$P/files` ohne Testdateien (Dateiname passt auf `(^|/)(tests?|__tests__|__snapshots__|e2e)/|\.(test|spec)\.[A-Za-z0-9]+$`) über `deckel.diff_zeilen`, außer Issue `#N` trägt `autopilot:gross-ok` (das setzt nur der Mensch). Ist `deckel.diff_zeilen` 0, entfällt diese Leitplanke; die Größe bewertest du dann in Schritt 4 (ein PR, der zwei getrennt nutzbare Ziele mischt, ist ein Befund).
-- `mergeable` ist `false` (bei `null` bis zu dreimal mit 10 s Abstand neu lesen).
 - Ein offener PR hat `claude/autopilot-N` als Basis (Stack, Squash würde ihn zerstören).
 - Klasse laut Spec ist C, oder die Spec fehlt.
+
+**Nicht mergebar** (`mergeable` ist `false`; bei `null` bis zu dreimal mit 10 s Abstand neu lesen) ist keine Leitplanke, sondern ein Fall für die Automatik: Steht die Änderung des PR schon auf dem Default-Branch (ein anderer gemergter PR erfüllt dieselben Akzeptanzkriterien oder ändert dieselbe Stelle gleich), Urteil `schliessen` mit dem Verweis auf diesen PR. Sonst Urteil `changes` mit genau einem Befund: „Konflikt mit `<default>`: `git merge origin/<default>`, Konflikte nach der Spec lösen, Gate.“ Stellt Schritt 4 fest, dass die Spec auf dem Default-Branch schon erfüllt ist, gilt ebenfalls `schliessen`.
 - Klasse B ohne Freigabe: in den Ereignissen des Issues muss `autopilot:proposed` entfernt worden sein, bevor `autopilot:ready` gesetzt wurde. Sonst gilt die Freigabe als nicht erteilt. Mit `freigabe_b: auto` in `.claude/autopilot.md` gilt Klasse B als freigegeben, sobald sie `autopilot:ready` trägt.
 
 ## 3. Gate
@@ -124,10 +125,10 @@ Lies den ganzen Diff (Routine: `git diff origin/$DEFAULT...HEAD`, Action: `git d
 
 | Feld | Inhalt |
 |---|---|
-| `urteil` | `merge` (Fall a), `changes` (Fall b), `needs-human` (Fall c, auch Stufe `begleitet`), `skip` (PR nicht mehr offen, ohne `autopilot:review`, mit `needs-human`, oder Stufe `trockenlauf`) |
+| `urteil` | `merge` (Fall a), `changes` (Fall b), `needs-human` (Fall c, auch Stufe `begleitet`), `schliessen` (Fall d), `skip` (PR nicht mehr offen, ohne `autopilot:review`, mit `needs-human`, oder Stufe `trockenlauf`) |
 | `sha` | der geprüfte `head.sha` |
 | `runde` | die Runde aus Schritt 1 |
-| `text` | der Text, den der Workflow postet: bei `merge` der Kommentar mit `<!-- autopilot:merged -->`, Urteil und geprüftem SHA; bei `changes` das Review mit `<!-- autopilot:review-round -->` im Format aus b); bei `needs-human` der Kommentar mit `<!-- autopilot:needs-human -->`, Grund und höchstens einer Frage |
+| `text` | der Text, den der Workflow postet: bei `merge` der Kommentar mit `<!-- autopilot:merged -->`, Urteil und geprüftem SHA; bei `changes` das Review mit `<!-- autopilot:review-round -->` im Format aus b); bei `needs-human` der Kommentar mit `<!-- autopilot:needs-human -->`, Grund und höchstens einer Frage; bei `schliessen` der Kommentar mit `<!-- autopilot:closed -->` und dem PR, der die Änderung schon gebracht hat |
 
 Der Workflow setzt die Labels wie unten beschrieben, mergt mit `sha` gleich dem geprüften SHA, schließt die verlinkten Issues und nimmt `autopilot:wip`. Die Abschnitte a bis c beschreiben, welches Urteil wann gilt; ihre Schreibschritte gelten nur für die Routine.
 
@@ -148,5 +149,7 @@ Runde <r>: <k> Befunde
 Nur Befunde, die der Worker abarbeiten kann; Geschmack ist kein Befund. Dann `autopilot:review` nehmen, `autopilot:changes` setzen.
 
 **c) needs-human** (Leitplanke, Befunde in Runde `deckel.review_runden`, ein Befund der Vorrunde ist nicht behoben, oder Stufe `begleitet`): Kommentar `<!-- autopilot:needs-human -->` am PR mit Grund oder Urteil und, wenn nötig, genau einer Frage. `needs-human` an PR und Issue setzen, `autopilot:review` und `autopilot:changes` am PR nehmen, `autopilot:wip` am Issue nehmen.
+
+**d) schliessen** (die Änderung steht schon auf dem Default-Branch, siehe „Nicht mergebar“): Kommentar `<!-- autopilot:closed -->` am PR mit dem Verweis, PR schließen, Branch löschen, Issue mit `state_reason=not_planned` schließen, `autopilot:*` an beiden nehmen. In der Action macht das der Workflow.
 
 Ende. Letzte Ausgabe: eine Zeile mit PR, Runde und Urteil.

@@ -85,6 +85,8 @@ Egal, welches Ereignis den Lauf ausgelöst hat: wähle nach dieser Reihenfolge, 
 
 Antwortet die Actions-API mit 403, eine Zeile ausgeben und diesen Schritt überspringen.
 
+**Mechanische `needs-human` abräumen** (nur bei `merge_weg: action`, gleich danach). Je offenem PR mit Head `claude/autopilot-*` und `needs-human`, dessen jüngster `<!-- autopilot:needs-human -->`-Kommentar vom Review-Workflow kommt und einen technischen Grund nennt („Review-Lauf ohne Urteil“, „kein Ergebnis“, „Review-Workflow gescheitert“ ohne „Merge-Leitplanke“, „nicht mergebar“), und nach dem kein Kommentar ohne Marker steht (keine Antwort des Menschen): wie Punkt 4 oben, also höchstens zwei `<!-- autopilot:review-neu -->` je SHA, dann `needs-human` an PR und Issue nehmen, `autopilot:wip` ans Issue, `autopilot:review` an den PR. Sind die zwei Versuche verbraucht, bleibt der Fall beim Menschen.
+
 1. **Nacharbeit:** offener PR mit Head `claude/autopilot-*`, Label `autopilot:changes`, ohne `needs-human`, ohne laufende Nacharbeit. Laufend heißt: am Issue `#N` steht ein `work-start`, der jünger ist als der jüngste Review mit `review-round` am PR und jünger als `deckel.wip_timeout_stunden`. Der älteste zuerst.
 2. **Neuer Auftrag:** offenes Issue mit `autopilot:ready`, ohne `autopilot:wip`, ohne `needs-human`, ohne offenen PR auf `claude/autopilot-<n>`. Das älteste zuerst. In Stufe `begleitet` nur Klasse A.
 
@@ -154,7 +156,7 @@ Abbruch nach Schritt 7 (needs-human), wenn:
 ## 4. Umsetzen
 
 - Neuer Auftrag: `git fetch origin && git switch -c claude/autopilot-N origin/$DEFAULT`. Gibt es `origin/claude/autopilot-N` schon (ein früherer Lauf brach mit needs-human ab), arbeite darauf weiter: `git switch claude/autopilot-N`.
-- Nacharbeit: `git fetch origin && git switch claude/autopilot-N && git pull --ff-only`. Lies den jüngsten Review mit Marker `autopilot:review-round` und die Zeilenkommentare dazu. Arbeite genau diese Punkte ab, nichts anderes.
+- Nacharbeit: `git fetch origin && git switch claude/autopilot-N && git pull --ff-only`. Lies den jüngsten Review mit Marker `autopilot:review-round` und die Zeilenkommentare dazu. Arbeite genau diese Punkte ab, nichts anderes. Ein Befund „Konflikt mit `<default>`“ heißt: `git merge origin/$DEFAULT`, Konflikte so lösen, dass die Spec erfüllt bleibt, Gate; ein Merge-Commit ist dafür erlaubt.
 - Ändere nur, was die Spec verlangt. Tests und Doku nach den Regeln des Repos (`CLAUDE.md`, „Doku- und Testpflicht“ in `.claude/autopilot.md`) gehören in denselben PR.
 - Nebenbei Gefundenes kommt als kurzer Kommentar ins Issue, nicht in den Diff.
 - Nie auf den Default-Branch pushen, nie `--force` auf einen fremden Branch. Auf deinem eigenen Branch neue Commits statt Umschreiben.
